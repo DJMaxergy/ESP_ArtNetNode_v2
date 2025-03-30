@@ -9,7 +9,7 @@
 #define CONF_NET_AP_SSID_DEF  CONF_NODENAME_DEF
 #define CONF_NET_AP_PW_DEF    "ArtNet2023"
 
-#define CONF_ART_FIRM_VER     0x0220      // Firmware given over Artnet (2 bytes)
+#define CONF_ART_FIRM_VER     FIRMARE_VER // Firmware given over Artnet (2 bytes)
 #define CONF_ARTNET_OEM       0x0123      // Artnet OEM Code
 #define CONF_ESTA_MAN         0x08DD      // ESTA Manufacturer Code
 #define CONF_ESTA_DEV         0xEE000000  // RDM Device ID (used with Man Code to make 48bit UID)

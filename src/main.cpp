@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include "espDMX_RDM.h"
@@ -19,10 +18,6 @@ extern "C" {
   #include "user_interface.h"
   extern struct rst_info resetInfo;
 }
-
-// #define DEBUG
-// #define SOLE_OUTPUT
-// #define OLED
 
 #define TIMEOUT_AP                  30000       // Timeout [ms] before closing Access Point if standalone mode is false
 #define TIMEOUT_CLEAR_COUNTERS      6000        // Timeout [ms] before clearing wdt and reset counters
@@ -583,6 +578,7 @@ void cbNetworkScanComplete(int count) {
     strListNetworksAvail = strListNetworksAvail + WiFi.SSID(i) + " (" + WiFi.RSSI(i) + " dBm)" + "<br>";
   }
   ESPUI.updateLabel(lblNetStaNetworksAvail, strListNetworksAvail);
+  WiFi.scanDelete();  // Free memory
 }
 
 void cbTabStation(Control* sender, int type) {
@@ -594,7 +590,7 @@ void cbTabStation(Control* sender, int type) {
 /* ############### Init functions ############### */
 
 void initWebServer() {
-  yield();
+  yield();  // Prevent watchdog resets
 
   // Disable captive portal when access point is not started
   if (accessPointStarted == false) {
@@ -681,7 +677,7 @@ void initWebServer() {
   }
   // DMX Input Config Tab content:
   ESPUI.addControl(ControlType::Text, "Broadcast Address", configActive.net_dmxIn_broadcast.toString(), ControlColor::Dark, tabDmxIn, cbTxtNetDmxIn);
-  yield();
+  yield();  // Prevent watchdog resets
   // Port A Tab content:
   uint16_t selModeA = ESPUI.addControl(ControlType::Select, "Mode", String(configActive.portA_mode), ControlColor::Sunflower, tabPortA, cbSelModePortA);
   ESPUI.addControl(ControlType::Option, "DMX Output", "0", ControlColor::None, selModeA);
@@ -741,7 +737,7 @@ void initWebServer() {
     ESPUI.setEnabled(selPixelModeA, false);
     ESPUI.setEnabled(numPixelFxStartChA, false);
   }
-  yield();
+  yield();  // Prevent watchdog resets
   // Port B Tab content:
   #ifndef SOLE_OUTPUT
   uint16_t selModeB = ESPUI.addControl(ControlType::Select, "Mode", String(configActive.portB_mode), ControlColor::Carrot, tabPortB, cbSelModePortB);
@@ -802,15 +798,27 @@ void initWebServer() {
     ESPUI.setEnabled(selPixelModeB, false);
     ESPUI.setEnabled(numPixelFxStartChB, false);
   }
-  yield();
+  yield();  // Prevent watchdog resets
   #endif
   // Update Tab content:
   uint16_t lblUpdateHint = ESPUI.addControl(ControlType::Label, "Info", "For doing OTA updates, go to [node-ip]/update.", ControlColor::None, tabUpdate);
   ESPUI.setPanelWide(lblUpdateHint, true);
 
   // Initialize WebServer:
-  ESPUI.begin(" ArtNetNode by DJ Maxergy (PB Matthew Tong) ");
-  yield();
+  #ifndef ESPUI_LITTLEFS
+    ESPUI.begin(CONF_LONGNAME_DEF); // loads and serves all files from PROGMEM directly
+  #else
+    FSInfo fs_info;
+    LittleFS.info(fs_info);
+    if (fs_info.usedBytes == 0) {
+      #ifdef DEBUG
+        Serial.println("Preparing filesystem for ESPUI...");
+      #endif
+      ESPUI.prepareFileSystem(); // Copy across current version of ESPUI resources
+    }
+    ESPUI.beginLITTLEFS(CONF_LONGNAME_DEF); // serve the files from LITTLEFS to save Heap
+  #endif
+  yield();  // Prevent watchdog resets
 
   // Add OTA Update requests:
   ESPUI.WebServer()->on("/update", HTTP_GET, [](AsyncWebServerRequest *request){handleUpdate(request);});
@@ -820,19 +828,88 @@ void initWebServer() {
                   size_t len, bool final) {handleDoUpdate(request, filename, index, data, len, final);}
   );
 
-  yield();
+  yield();  // Prevent watchdog resets
 }
 
 void convertMACtoStr(uint8_t* macArrayPtr, char* macStringPtr) {
   sprintf(macStringPtr, "%2X:%2X:%2X:%2X:%2X:%2X", macArrayPtr[0], macArrayPtr[1], macArrayPtr[2], macArrayPtr[3], macArrayPtr[4], macArrayPtr[5]);
 }
 
-void initAP() {
-  yield();
+uint8_t findBestWiFiChannel() {
+  // Wi-Fi channel overlap penalty mapping
+  const uint8_t maxChannels = 13;
+  const uint8_t overlapPenalty = 1;   // Small penalty for adjacent interference
+  const uint8_t directPenalty = 5;    // High penalty for directly occupied channels
 
+  uint16_t channelUsage[maxChannels + 1] = {0};  // Array for penalty score
+  uint8_t bestChannel = 1;
+
+  WiFi.mode(WIFI_STA);  // Ensure station mode for scanning
+  delay(100);  // Allow mode switch to settle
+
+  #ifdef DEBUG
+    Serial.println("Scanning WiFi channels...");
+  #endif
+  int8_t networks = WiFi.scanNetworks();
+  yield();  // Prevent watchdog resets
+
+  if (networks == 0) {
+    #ifdef DEBUG
+      Serial.println("No networks found. Defaulting to channel 1.");
+    #endif
+    return bestChannel;
+  }
+
+  for (int8_t i = 0; i < networks; i++) {
+    int32_t channel = WiFi.channel(i);
+    if (channel < 1 || channel > maxChannels) continue;
+
+    channelUsage[channel] += directPenalty;  // Direct interference
+
+    // Apply penalties for overlapping channels
+    if (channel > 1) channelUsage[channel - 1] += overlapPenalty;
+    if (channel > 2) channelUsage[channel - 2] += overlapPenalty;
+    if (channel < maxChannels) channelUsage[channel + 1] += overlapPenalty;
+    if (channel < maxChannels - 1) channelUsage[channel + 2] += overlapPenalty;
+
+    #ifdef DEBUG
+      Serial.printf("SSID: %s, Channel: %d, RSSI: %d\n", WiFi.SSID(i).c_str(), channel, WiFi.RSSI(i));
+    #endif
+    yield();  // Prevent watchdog resets
+  }
+
+  WiFi.scanDelete();  // Free memory
+
+  // Find the channel with the lowest interference score
+  uint16_t minPenalty = channelUsage[1];
+
+  for (uint8_t ch = 2; ch <= maxChannels; ch++) {
+    if (channelUsage[ch] < minPenalty) {
+      minPenalty = channelUsage[ch];
+      bestChannel = ch;
+    }
+  }
+
+  #ifdef DEBUG
+    Serial.printf("Best WiFi channel selected: %d (Penalty Score: %d)\n", bestChannel, minPenalty);
+  #endif
+  return bestChannel;
+}
+
+void initAP() {
+  yield();  // Prevent watchdog resets
+
+  // Search for best channel
+  int32_t apChannel = findBestWiFiChannel();
+  #ifdef DEBUG
+    Serial.printf("Setting up soft AP using channel %d\n", apChannel);
+  #endif
+
+  // Now setup soft AP
   WiFi.mode(WIFI_AP);
+  delay(100);  // Allow mode switch to settle
   WiFi.softAPConfig(configActive.net_ap_ip, configActive.net_ap_ip, configActive.net_ap_subnet);
-  WiFi.softAP(configActive.net_ap_ssid, configActive.net_ap_password);
+  WiFi.softAP(configActive.net_ap_ssid, configActive.net_ap_password, apChannel);
   WiFi.softAPSSID().toCharArray(configActive.net_ap_ssid, sizeof(configActive.net_ap_ssid));
   WiFi.macAddress(macAddr);
   convertMACtoStr(macAddr, macAddr_str);
@@ -845,7 +922,7 @@ void initAP() {
     (uint8_t)((~configActive.net_ap_subnet[3]) | (configActive.net_ap_ip[3] & configActive.net_ap_subnet[3]))  
   };
 
-  sprintf(wifiStatus, "Access Point started.<br />\nSSID: %s", configActive.net_ap_ssid);
+  sprintf(wifiStatus, "Access Point started.<br />\nSSID: %s, Ch: %d", configActive.net_ap_ssid, apChannel);
   accessPointStarted = true;
 
   // Start mDNS for captive portal (only relevant for access point)
@@ -861,7 +938,7 @@ void initAP() {
     // Stay here if not in stand alone mode - no dmx or artnet
     while (timeout > millis() || WiFi.softAPgetStationNum() > 0) {
       dnsServer.processNextRequest();
-      yield();
+      yield();  // Prevent watchdog resets
     }
 
     accessPointStarted = false;
@@ -894,7 +971,7 @@ void initWifi() {
     if (configActive.net_sta_dhcp == true) {
       // WiFi station is configured for DHCP -> wait for established connection:
       while (WiFi.status() != WL_CONNECTED && timeout > millis()) {
-        yield();
+        yield();  // Prevent watchdog resets
       }
       
       if (millis() >= timeout) {
@@ -924,7 +1001,7 @@ void initWifi() {
     initAP();
   }
 
-  yield();
+  yield();  // Prevent watchdog resets
 }
 
 void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEnabled) {
@@ -939,7 +1016,7 @@ void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEn
   if (portA[0] == group) {
     // WS2812 mode:
     if (configActive.portA_mode == PORT_TYPE_WS2812) {
-      statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue); //green
+      statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
 
       // FX MAP mode:
       if (configActive.portA_pixel_mode == PIXEL_FX_MODE_MAP) {
@@ -993,7 +1070,7 @@ void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEn
     } */
     // WS2812 mode:
     if (configActive.portB_mode == PORT_TYPE_WS2812) {
-      statusStrip.SetPixelColor(ADDR_STATUS_LED_B, blue); //green
+      statusStrip.SetPixelColor(ADDR_STATUS_LED_B, blue);
       
       // FX MAP mode:
       if (configActive.portB_pixel_mode == PIXEL_FX_MODE_MAP) {
@@ -1316,7 +1393,7 @@ void initArtnet() {
   // Start artnet
   artRDM.begin();
 
-  yield();
+  yield();  // Prevent watchdog resets
 }
 
 void initPorts() {
@@ -1570,7 +1647,7 @@ void setup(void) {
   #ifndef DEBUG
     // Don't open any ports for a bit to let the ESP spill it's garbage to serial
     while (millis() < 3500)
-      yield();
+      yield();  // Prevent watchdog resets
 
     initPorts();
   #endif
@@ -1618,7 +1695,7 @@ void loop(void){
   doNodeReport();
   artRDM.handler();
   
-  yield();
+  yield();  // Prevent watchdog resets
 
   #ifndef DEBUG
     // When no ArtNet data is received anymore, pause DMX output after timeout for better webserver performance:
@@ -1685,7 +1762,7 @@ void loop(void){
     IPAddress bc = configActive.net_dmxIn_broadcast;
     artRDM.sendDMX(g, p, bc, dataIn, 512);
 
-    statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue); //yellow
+    statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
   }
 
   // Handle rebooting the system
@@ -1701,6 +1778,9 @@ void loop(void){
   if ((statusTimer < millis()) && (Update.isRunning() == false)) {
     // Flash status LEDs
     if ((statusTimer % (2*INTERVAL_STATUS_LED)) > INTERVAL_STATUS_LED) {
+      #ifdef DEBUG
+        Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
+      #endif
       // Flash main status LED
       if (nodeError[0] != '\0') {
         statusStrip.SetPixelColor(ADDR_STATUS_LED_S, red);
