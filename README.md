@@ -1,5 +1,5 @@
-# ESP8266_ArtNetNode_v2
-ESP8266 based WiFi ArtNet V4 to DMX, RDM and LED Pixels
+# ESP32_ArtNetNode_v2
+ESP32 based WiFi ArtNet V4 to DMX, RDM and LED Pixels
 
 This is a complete rewrite of mtongnz's [project](https://github.com/mtongnz/ESP8266_ArtNetNode_v2.git) for Platformio using [NeoPixelBus](https://github.com/Makuna/NeoPixelBus) and [ESPUI](https://github.com/s00500/ESPUI).
 
@@ -67,14 +67,13 @@ Note: You still need to set the Artnet net, subnet and universe correctly.
 
 Modify FX is only currently used for the Static effect and is used to resize colour 1 within the overall size.
 
-## NodeMCU & Wemos Pins
-These boards use strange numbering that doesn't match the ESP8266 numbering.  Here are the main hookups needed:
+## Wemos Pins
 
-| NodeMCU & Wemos | ESP8266 GPIO | Purpose |
+| Wemos | ESP32 GPIO | Purpose |
 |-----------------|--------------|---------|
-| TX | GPIO1 | DMX_TX_A |
-| D4 | GPIO2 | DMX_TX_B |
-| RX | GPIO3 | DMX_RX (for A & B) |
-| D1 | GPIO5 | DMX_DIR_A |
-| D0 | GPIO16 | DMX_DIR_B |
+| TX | GPIO1 | PIN_PORT_A |
+| D4 | GPIO16 | PIN_PORT_B |
+| - | GPIO22 | PIN_PORT_A_RX |
+| D7 | GPIO23 | PIN_DMX_DIR_A |
+| D0 | GPIO26 | PIN_DMX_DIR_B |
 
