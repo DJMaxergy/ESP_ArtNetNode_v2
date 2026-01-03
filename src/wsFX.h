@@ -42,16 +42,12 @@ class pixPatterns {
     
     // uint8_t Port;                 // port number.
     // ws2812Driver* pixDriver;      // the pixel driver
-    NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBus0;
-    NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBus1;
-    NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart0Ws2812xMethod>* pixBusAsync0;
-    NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart1Ws2812xMethod>* pixBusAsync1;
+    NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBus0;
+    NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBus1;
     
     // pixPatterns(uint8_t port, ws2812Driver* p);
-    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart0Ws2812xMethod>* pixBusPtr);
-    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart1Ws2812xMethod>* pixBusPtr);
-    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBusPtr);
-    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBusPtr);
+    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr);
+    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBusPtr);
     bool Update(void);
     void Increment(void);
     void setSpeed(uint8_t s);

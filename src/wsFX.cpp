@@ -25,11 +25,9 @@ If not, see http://www.gnu.org/licenses/
   Speed = 0;
   TotalSteps = 100;
 } */
-pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart0Ws2812xMethod>* pixBusPtr) {
+pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr) {
   pixBus0 = nullptr;
   pixBus1 = nullptr;
-  pixBusAsync0 = pixBusPtr;
-  pixBusAsync1 = nullptr;
   NewData = 0;
   lastUpdate = 0;
   Intensity = 0;
@@ -37,35 +35,9 @@ pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart0Ws2812xM
   TotalSteps = 100;
 }
 
-pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266AsyncUart1Ws2812xMethod>* pixBusPtr) {
+pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBusPtr) {
   pixBus0 = nullptr;
   pixBus1 = nullptr;
-  pixBusAsync0 = nullptr;
-  pixBusAsync1 = pixBusPtr;
-  NewData = 0;
-  lastUpdate = 0;
-  Intensity = 0;
-  Speed = 0;
-  TotalSteps = 100;
-}
-
-pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBusPtr) {
-  pixBus0 = pixBusPtr;
-  pixBus1 = nullptr;
-  pixBusAsync0 = nullptr;
-  pixBusAsync1 = nullptr;
-  NewData = 0;
-  lastUpdate = 0;
-  Intensity = 0;
-  Speed = 0;
-  TotalSteps = 100;
-}
-
-pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBusPtr) {
-  pixBus0 = nullptr;
-  pixBus1 = pixBusPtr;
-  pixBusAsync0 = nullptr;
-  pixBusAsync1 = nullptr;
   NewData = 0;
   lastUpdate = 0;
   Intensity = 0;
@@ -184,10 +156,6 @@ void pixPatterns::StaticUpdate(void) {
     TotalSteps = pixBus0->PixelCount();
   } else if (pixBus1 != nullptr) {
     TotalSteps = pixBus1->PixelCount();
-  } else if (pixBusAsync0 != nullptr) {
-    TotalSteps = pixBusAsync0->PixelCount();
-  } else if (pixBusAsync1 != nullptr) {
-    TotalSteps = pixBusAsync1->PixelCount();
   }
 
   // Calculate the values to use mapped to the number of pixels we have
@@ -268,10 +236,6 @@ void pixPatterns::StaticUpdate(void) {
       pixBus0->SetPixelColor(p, RgbColor(Red(c), Green(c), Blue(c)));
     } else if (pixBus1 != nullptr) {
       pixBus1->SetPixelColor(p, RgbColor(Red(c), Green(c), Blue(c)));
-    } else if (pixBusAsync0 != nullptr) {
-      pixBusAsync0->SetPixelColor(p, RgbColor(Red(c), Green(c), Blue(c)));
-    } else if (pixBusAsync1 != nullptr) {
-      pixBusAsync1->SetPixelColor(p, RgbColor(Red(c), Green(c), Blue(c)));
     }
   }
   Increment();
@@ -294,10 +258,6 @@ void pixPatterns::RainbowCycleUpdate(void) {
     numPixels = pixBus0->PixelCount();
   } else if (pixBus1 != nullptr) {
     numPixels = pixBus1->PixelCount();
-  } else if (pixBusAsync0 != nullptr) {
-    numPixels = pixBusAsync0->PixelCount();
-  } else if (pixBusAsync1 != nullptr) {
-    numPixels = pixBusAsync1->PixelCount();
   }
   
   uint16_t mSize = map(Size, 0, 255, 2, numPixels);
@@ -314,10 +274,6 @@ void pixPatterns::RainbowCycleUpdate(void) {
         pixBus0->SetPixelColor(p, RgbColor(r, g, b));
       } else if (pixBus1 != nullptr) {
         pixBus1->SetPixelColor(p, RgbColor(r, g, b));
-      } else if (pixBusAsync0 != nullptr) {
-        pixBusAsync0->SetPixelColor(p, RgbColor(r, g, b));
-      } else if (pixBusAsync1 != nullptr) {
-        pixBusAsync1->SetPixelColor(p, RgbColor(r, g, b));
       }
     }
   }
@@ -340,10 +296,6 @@ void pixPatterns::TheaterChaseUpdate(void) {
     numPixels = pixBus0->PixelCount();
   } else if (pixBus1 != nullptr) {
     numPixels = pixBus1->PixelCount();
-  } else if (pixBusAsync0 != nullptr) {
-    numPixels = pixBusAsync0->PixelCount();
-  } else if (pixBusAsync1 != nullptr) {
-    numPixels = pixBusAsync1->PixelCount();
   }
   TotalSteps = numPixels;
   
@@ -357,10 +309,6 @@ void pixPatterns::TheaterChaseUpdate(void) {
         pixBus0->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
       } else if (pixBus1 != nullptr) {
         pixBus1->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
-      } else if (pixBusAsync0 != nullptr) {
-        pixBusAsync0->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
-      } else if (pixBusAsync1 != nullptr) {
-        pixBusAsync1->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
       }
     }
     else {
@@ -369,10 +317,6 @@ void pixPatterns::TheaterChaseUpdate(void) {
         pixBus0->SetPixelColor(i, RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
       } else if (pixBus1 != nullptr) {
         pixBus1->SetPixelColor(i, RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
-      } else if (pixBusAsync0 != nullptr) {
-        pixBusAsync0->SetPixelColor(i, RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
-      } else if (pixBusAsync1 != nullptr) {
-        pixBusAsync1->SetPixelColor(i, RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
       }
     }
   }
@@ -398,10 +342,6 @@ void pixPatterns::TwinkleUpdate(void) {
     numPixels = pixBus0->PixelCount();
   } else if (pixBus1 != nullptr) {
     numPixels = pixBus1->PixelCount();
-  } else if (pixBusAsync0 != nullptr) {
-    numPixels = pixBusAsync0->PixelCount();
-  } else if (pixBusAsync1 != nullptr) {
-    numPixels = pixBusAsync1->PixelCount();
   }
   
   // Clear strip
@@ -412,10 +352,6 @@ void pixPatterns::TwinkleUpdate(void) {
         pixBus0->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
       } else if (pixBus1 != nullptr) {
         pixBus1->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
-      } else if (pixBusAsync0 != nullptr) {
-        pixBusAsync0->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
-      } else if (pixBusAsync1 != nullptr) {
-        pixBusAsync1->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
       }
     }
   }
@@ -429,10 +365,6 @@ void pixPatterns::TwinkleUpdate(void) {
         pixBus0->SetPixelColor(random(0, numPixels), RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
       } else if (pixBus1 != nullptr) {
         pixBus1->SetPixelColor(random(0, numPixels), RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
-      } else if (pixBusAsync0 != nullptr) {
-        pixBusAsync0->SetPixelColor(random(0, numPixels), RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
-      } else if (pixBusAsync1 != nullptr) {
-        pixBusAsync1->SetPixelColor(random(0, numPixels), RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
       }
     }
   }

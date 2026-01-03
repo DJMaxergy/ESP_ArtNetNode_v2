@@ -2,7 +2,7 @@
 #define _CONFIG_H_
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 
 #define CONF_NODENAME_DEF     "espArtNetNode"
 #define CONF_LONGNAME_DEF     "espArtNetNode DMX/Pixel interface"
