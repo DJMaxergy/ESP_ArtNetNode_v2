@@ -16,19 +16,19 @@ void config_init(void)
     strcpy(config.net_sta_password, "");
     config.net_sta_dhcp = true;
     config.net_sta_ip.fromString("2.0.0.1");
-    config.net_sta_subnet.fromString("255.0.0.0");
+    config.net_sta_subnet.fromString("255.255.255.0");
     config.net_sta_gateway.fromString("2.0.0.1");
-    config.net_sta_broadcast.fromString("2.255.255.255");
+    config.net_sta_broadcast.fromString("2.0.0.255");
 
     strcpy(config.net_ap_ssid, CONF_NET_AP_SSID_DEF);
     strcpy(config.net_ap_password, CONF_NET_AP_PW_DEF);
     config.net_ap_ip.fromString("2.0.0.1");
-    config.net_ap_subnet.fromString("255.0.0.0");
-    config.net_ap_broadcast.fromString("2.255.255.255");
+    config.net_ap_subnet.fromString("255.255.255.0");
+    config.net_ap_broadcast.fromString("2.0.0.255");
     config.net_ap_standalone = true;
     config.net_ap_delay = 15;
 
-    config.net_dmxIn_broadcast.fromString("2.255.255.255");
+    config.net_dmxIn_broadcast.fromString("2.0.0.255");
 
     config.portA_mode = 0;
     config.portA_prot = 0;
@@ -60,86 +60,81 @@ void config_init(void)
 
 bool config_load(void)
 {
-    bool ret_val = true;
     File configFile = LittleFS.open("/config.json", "r");
-    char fwVersion[7];
-
     if (!configFile) {
-        ret_val = false;
+        return false;
     }
 
     size_t size = configFile.size();
-    if (size > 1536) {
-        ret_val = false;
+    if (size == 0 || size > 1536) {
+        configFile.close();
+        return false;
     }
 
     StaticJsonDocument<1536> doc;
     DeserializationError error = deserializeJson(doc, configFile);
-    if (error) {
-        ret_val = false;
-    }
-
-    if (ret_val == true) {
-        // copy values from JsonDocument to Config objects:
-        strlcpy(config.gen_version, doc["general"]["version"], sizeof(config.gen_version));
-        sprintf(fwVersion, "v%1u.%1u.%1u", (uint8_t)((CONF_ART_FIRM_VER & 0x0F00) >> 8), (uint8_t)((CONF_ART_FIRM_VER & 0x00F0) >> 4), (uint8_t)(CONF_ART_FIRM_VER & 0x000F));
-        if (strcmp(config.gen_version, fwVersion) != 0) {
-            strcpy(config.gen_version, fwVersion);
-        }
-        strlcpy(config.gen_nodeName, doc["general"]["nodeName"], sizeof(config.gen_nodeName));
-        strlcpy(config.gen_longName, doc["general"]["longName"], sizeof(config.gen_longName));
-        
-        strlcpy(config.net_sta_ssid, doc["network"]["sta"]["ssid"], sizeof(config.net_sta_ssid));
-        strlcpy(config.net_sta_password, doc["network"]["sta"]["password"], sizeof(config.net_sta_password));
-        config.net_sta_dhcp = doc["network"]["sta"]["dhcp"];
-        config.net_sta_ip.fromString(doc["network"]["sta"]["ip"].as<const char*>());
-        config.net_sta_subnet.fromString(doc["network"]["sta"]["subnet"].as<const char*>());
-        config.net_sta_gateway.fromString(doc["network"]["sta"]["gateway"].as<const char*>());
-        config.net_sta_broadcast.fromString(doc["network"]["sta"]["broadcast"].as<const char*>());
-        
-        strlcpy(config.net_ap_ssid, doc["network"]["ap"]["ssid"], sizeof(config.net_ap_ssid));
-        strlcpy(config.net_ap_password, doc["network"]["ap"]["password"], sizeof(config.net_ap_password));
-        config.net_ap_ip.fromString(doc["network"]["ap"]["ip"].as<const char*>());
-        config.net_ap_subnet.fromString(doc["network"]["ap"]["subnet"].as<const char*>());
-        config.net_ap_broadcast.fromString(doc["network"]["ap"]["broadcast"].as<const char*>());
-        config.net_ap_standalone = doc["network"]["ap"]["standalone"];
-        config.net_ap_delay = doc["network"]["ap"]["delay"];
-
-        config.net_dmxIn_broadcast.fromString(doc["network"]["dmxIn"]["broadcast"].as<const char*>());
-
-        config.portA_mode = doc["portA"]["mode"];
-        config.portA_prot = doc["portA"]["protocol"];
-        config.portA_merge = doc["portA"]["merge"];
-        config.portA_net = doc["portA"]["net"];
-        config.portA_subnet = doc["portA"]["subnet"];
-        copyArray(doc["portA"]["universe"].as<JsonArrayConst>(), config.portA_uni);
-        copyArray(doc["portA"]["SACN_universe"].as<JsonArrayConst>(), config.portA_SACNuni);
-        config.portA_pixel_count = doc["portA"]["pixel"]["count"];
-        config.portA_pixel_config = doc["portA"]["pixel"]["config"];
-        config.portA_pixel_mode = doc["portA"]["pixel"]["mode"];
-        config.portA_pixel_startFX = doc["portA"]["pixel"]["startFx"];
-
-        config.portB_mode = doc["portB"]["mode"];
-        config.portB_prot = doc["portB"]["protocol"];
-        config.portB_merge = doc["portB"]["merge"];
-        config.portB_net = doc["portB"]["net"];
-        config.portB_subnet = doc["portB"]["subnet"];
-        copyArray(doc["portB"]["universe"].as<JsonArrayConst>(), config.portB_uni);
-        copyArray(doc["portB"]["SACN_universe"].as<JsonArrayConst>(), config.portB_SACNuni);
-        config.portB_pixel_count = doc["portB"]["pixel"]["count"];
-        config.portB_pixel_config = doc["portB"]["pixel"]["config"];
-        config.portB_pixel_mode = doc["portB"]["pixel"]["mode"];
-        config.portB_pixel_startFX = doc["portB"]["pixel"]["startFx"];
-
-        config.resetCounter = doc["debug"]["resetCounter"];
-        config.resetCounter = doc["debug"]["wdtCounter"];
-    } else {
-        config_init();
-    }
-
     configFile.close();
 
-    return ret_val;
+    if (error) {
+        return false;
+    }
+
+    // copy values from JsonDocument to Config objects:
+    strlcpy(config.gen_version, doc["general"]["version"], sizeof(config.gen_version));
+    char fwVersion[7];
+    sprintf(fwVersion, "v%1u.%1u.%1u", (uint8_t)((CONF_ART_FIRM_VER & 0x0F00) >> 8), (uint8_t)((CONF_ART_FIRM_VER & 0x00F0) >> 4), (uint8_t)(CONF_ART_FIRM_VER & 0x000F));
+    if (strcmp(config.gen_version, fwVersion) != 0) {
+        strcpy(config.gen_version, fwVersion);
+    }
+    strlcpy(config.gen_nodeName, doc["general"]["nodeName"], sizeof(config.gen_nodeName));
+    strlcpy(config.gen_longName, doc["general"]["longName"], sizeof(config.gen_longName));
+    
+    strlcpy(config.net_sta_ssid, doc["network"]["sta"]["ssid"], sizeof(config.net_sta_ssid));
+    strlcpy(config.net_sta_password, doc["network"]["sta"]["password"], sizeof(config.net_sta_password));
+    config.net_sta_dhcp = doc["network"]["sta"]["dhcp"];
+    config.net_sta_ip.fromString(doc["network"]["sta"]["ip"].as<const char*>());
+    config.net_sta_subnet.fromString(doc["network"]["sta"]["subnet"].as<const char*>());
+    config.net_sta_gateway.fromString(doc["network"]["sta"]["gateway"].as<const char*>());
+    config.net_sta_broadcast.fromString(doc["network"]["sta"]["broadcast"].as<const char*>());
+    
+    strlcpy(config.net_ap_ssid, doc["network"]["ap"]["ssid"], sizeof(config.net_ap_ssid));
+    strlcpy(config.net_ap_password, doc["network"]["ap"]["password"], sizeof(config.net_ap_password));
+    config.net_ap_ip.fromString(doc["network"]["ap"]["ip"].as<const char*>());
+    config.net_ap_subnet.fromString(doc["network"]["ap"]["subnet"].as<const char*>());
+    config.net_ap_broadcast.fromString(doc["network"]["ap"]["broadcast"].as<const char*>());
+    config.net_ap_standalone = doc["network"]["ap"]["standalone"];
+    config.net_ap_delay = doc["network"]["ap"]["delay"];
+
+    config.net_dmxIn_broadcast.fromString(doc["network"]["dmxIn"]["broadcast"].as<const char*>());
+
+    config.portA_mode = doc["portA"]["mode"];
+    config.portA_prot = doc["portA"]["protocol"];
+    config.portA_merge = doc["portA"]["merge"];
+    config.portA_net = doc["portA"]["net"];
+    config.portA_subnet = doc["portA"]["subnet"];
+    copyArray(doc["portA"]["universe"].as<JsonArrayConst>(), config.portA_uni);
+    copyArray(doc["portA"]["SACN_universe"].as<JsonArrayConst>(), config.portA_SACNuni);
+    config.portA_pixel_count = doc["portA"]["pixel"]["count"];
+    config.portA_pixel_config = doc["portA"]["pixel"]["config"];
+    config.portA_pixel_mode = doc["portA"]["pixel"]["mode"];
+    config.portA_pixel_startFX = doc["portA"]["pixel"]["startFx"];
+
+    config.portB_mode = doc["portB"]["mode"];
+    config.portB_prot = doc["portB"]["protocol"];
+    config.portB_merge = doc["portB"]["merge"];
+    config.portB_net = doc["portB"]["net"];
+    config.portB_subnet = doc["portB"]["subnet"];
+    copyArray(doc["portB"]["universe"].as<JsonArrayConst>(), config.portB_uni);
+    copyArray(doc["portB"]["SACN_universe"].as<JsonArrayConst>(), config.portB_SACNuni);
+    config.portB_pixel_count = doc["portB"]["pixel"]["count"];
+    config.portB_pixel_config = doc["portB"]["pixel"]["config"];
+    config.portB_pixel_mode = doc["portB"]["pixel"]["mode"];
+    config.portB_pixel_startFX = doc["portB"]["pixel"]["startFx"];
+
+    config.resetCounter = doc["debug"]["resetCounter"];
+    config.resetCounter = doc["debug"]["wdtCounter"];
+
+    return true;
 }
 
 bool config_save(void)

@@ -78,11 +78,12 @@
 #define PIN_DMX_DIR_A       23    // equals D1mini D7
 #define PIN_DMX_DIR_B       26    // equals D1mini D0
 // #define PIN_PORT_A          1     // equals D1mini TX
-// #define PIN_PORT_B          16    // equals D1mini D4
+#define PIN_PORT_B          16    // equals D1mini D4
+// #define PIN_PORT_A_RX       3     // equals D1mini RX
 #define PIN_PORT_A          17
-#define PIN_PORT_B          25
+// #define PIN_PORT_B          25
 #define PIN_PORT_A_RX       22
-#define PIN_PORT_B_RX       21  // just a dummy
+#define PIN_PORT_B_RX       -1  // just a dummy
 
 //#define PIN_STATUS_LED              12  // D6, approved: 3 = RX (DMA support, but used for DMX input)
 #define PIN_STATUS_LED              19          // equals D1mini D6
@@ -134,13 +135,7 @@ uint32_t artDmxReceiveTimer = 0;
 
 char wifiStatus[100] = "";
 bool accessPointStarted = false;
-// uint32_t nextNodeReport = 0;
-// char nodeError[ARTNET_NODE_REPORT_LENGTH] = "";
-// bool nodeErrorShowing = 1;
-// uint32_t nodeErrorTimeout = 0;
-// bool pixDone = true;
-// bool newDmxIn = false;
-// byte* dataIn;
+int8_t networks = 0;
 bool doReboot = false;
 bool dmxOutAPaused = false;
 #ifndef SOLE_OUTPUT
@@ -614,26 +609,15 @@ void cbSelPixelModePortB(Control* sender, int value) {
 
 /* ----------------- Tab callbacks ----------------- */
 
-void handleWifiScan() {
-  int result = WiFi.scanComplete();
-  if (result >= 0)
+void cbTabStation(Control* sender, int type) {
+  if (networks >= 0)
   {
     strListNetworksAvail = "";
-    for (int i = 0; i < result; i++) {
+    for (int i = 0; i < networks; i++) {
       strListNetworksAvail = strListNetworksAvail + WiFi.SSID(i) + " (" + WiFi.RSSI(i) + " dBm)" + "<br>";
     }
     ESPUI.updateLabel(lblNetStaNetworksAvail, strListNetworksAvail);
-    WiFi.scanDelete();  // Free memory
   }
-}
-
-void cbTabStation(Control* sender, int type) {
-  WiFi.mode(WIFI_STA);
-
-  if (WiFi.scanComplete() == WIFI_SCAN_RUNNING)
-      return;
-
-  WiFi.scanNetworks(true);
 }
 
 /* --------------- Tab callbacks end -------------- */
@@ -641,8 +625,6 @@ void cbTabStation(Control* sender, int type) {
 /* ############### Init functions ############### */
 
 void initWebServer() {
-  yield();  // Prevent watchdog resets
-
   // Disable captive portal when access point is not started
   if (accessPointStarted == false) {
     ESPUI.captivePortal = false;
@@ -728,7 +710,6 @@ void initWebServer() {
   }
   // DMX Input Config Tab content:
   ESPUI.addControl(ControlType::Text, "Broadcast Address", configActive.net_dmxIn_broadcast.toString(), ControlColor::Dark, tabDmxIn, cbTxtNetDmxIn);
-  yield();  // Prevent watchdog resets
   // Port A Tab content:
   uint16_t selModeA = ESPUI.addControl(ControlType::Select, "Mode", String(configActive.portA_mode), ControlColor::Sunflower, tabPortA, cbSelModePortA);
   ESPUI.addControl(ControlType::Option, "DMX Output", "0", ControlColor::None, selModeA);
@@ -788,7 +769,6 @@ void initWebServer() {
     ESPUI.setEnabled(selPixelModeA, false);
     ESPUI.setEnabled(numPixelFxStartChA, false);
   }
-  yield();  // Prevent watchdog resets
   // Port B Tab content:
   #ifndef SOLE_OUTPUT
   uint16_t selModeB = ESPUI.addControl(ControlType::Select, "Mode", String(configActive.portB_mode), ControlColor::Carrot, tabPortB, cbSelModePortB);
@@ -849,7 +829,6 @@ void initWebServer() {
     ESPUI.setEnabled(selPixelModeB, false);
     ESPUI.setEnabled(numPixelFxStartChB, false);
   }
-  yield();  // Prevent watchdog resets
   #endif
   // Update Tab content:
   uint16_t lblUpdateHint = ESPUI.addControl(ControlType::Label, "Info", "For doing OTA updates, go to [node-ip]/update.", ControlColor::None, tabUpdate);
@@ -871,7 +850,6 @@ void initWebServer() {
     }
     ESPUI.beginLITTLEFS(CONF_LONGNAME_DEF); // serve the files from LITTLEFS to save Heap
   #endif
-  yield();  // Prevent watchdog resets
 
   // Add OTA Update requests:
   ESPUI.WebServer()->on("/update", HTTP_GET, [](AsyncWebServerRequest *request){handleUpdate(request);});
@@ -880,8 +858,6 @@ void initWebServer() {
     [](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data,
                   size_t len, bool final) {handleDoUpdate(request, filename, index, data, len, final);}
   );
-
-  yield();  // Prevent watchdog resets
 }
 
 void convertMACtoStr(uint8_t* macArrayPtr, char* macStringPtr) {
@@ -903,8 +879,7 @@ uint8_t findBestWiFiChannel() {
   #ifdef DEBUG
     Serial.println("Scanning WiFi channels...");
   #endif
-  int8_t networks = WiFi.scanNetworks();
-  yield();  // Prevent watchdog resets
+  networks = WiFi.scanNetworks();
 
   if (networks == 0) {
     #ifdef DEBUG
@@ -928,10 +903,7 @@ uint8_t findBestWiFiChannel() {
     #ifdef DEBUG
       Serial.printf("SSID: %s, Channel: %d, RSSI: %d\n", WiFi.SSID(i).c_str(), channel, WiFi.RSSI(i));
     #endif
-    yield();  // Prevent watchdog resets
   }
-
-  WiFi.scanDelete();  // Free memory
 
   // Find the channel with the lowest interference score
   uint16_t minPenalty = channelUsage[1];
@@ -950,8 +922,6 @@ uint8_t findBestWiFiChannel() {
 }
 
 void initAP() {
-  yield();  // Prevent watchdog resets
-
   // Search for best channel
   int32_t apChannel = findBestWiFiChannel();
   #ifdef DEBUG
@@ -963,7 +933,7 @@ void initAP() {
   delay(100);  // Allow mode switch to settle
   WiFi.softAPConfig(configActive.net_ap_ip, configActive.net_ap_ip, configActive.net_ap_subnet);
   WiFi.softAP(configActive.net_ap_ssid, configActive.net_ap_password, apChannel);
-  WiFi.softAPSSID().toCharArray(configActive.net_ap_ssid, sizeof(configActive.net_ap_ssid));
+  // WiFi.softAPSSID().toCharArray(configActive.net_ap_ssid, sizeof(configActive.net_ap_ssid));
   WiFi.macAddress(macAddr);
   convertMACtoStr(macAddr, macAddr_str);
 
@@ -991,7 +961,6 @@ void initAP() {
     // Stay here if not in stand alone mode - no dmx or artnet
     while (timeout > millis() || WiFi.softAPgetStationNum() > 0) {
       dnsServer.processNextRequest();
-      yield();  // Prevent watchdog resets
     }
 
     accessPointStarted = false;
@@ -1005,7 +974,7 @@ void initWifi() {
 
   // If it's the default WiFi Access Point SSID or it's empty, make it unique:
   if (strcmp(configActive.net_ap_ssid, CONF_NET_AP_SSID_DEF) == 0 || configActive.net_ap_ssid[0] == '\0') {
-    sprintf(configActive.net_ap_ssid, "%s_%05u", CONF_NET_AP_SSID_DEF, (ESP.getEfuseMac() & 0xFF));
+    snprintf(configActive.net_ap_ssid, sizeof(configActive.net_ap_ssid), "%s_%06X", CONF_NET_AP_SSID_DEF, (ESP.getEfuseMac() & 0xFFFFFF));
   }
   
   if (configActive.net_ap_standalone == true) {
@@ -1024,7 +993,7 @@ void initWifi() {
     if (configActive.net_sta_dhcp == true) {
       // WiFi station is configured for DHCP -> wait for established connection:
       while (WiFi.status() != WL_CONNECTED && timeout > millis()) {
-        yield();  // Prevent watchdog resets
+        vTaskDelay(1);
       }
       
       if (millis() >= timeout) {
@@ -1053,8 +1022,6 @@ void initWifi() {
     // No WiFi station SSID configured, start access point:
     initAP();
   }
-
-  yield();  // Prevent watchdog resets
 }
 
 PixelSlice getPixelSlice(uint16_t universe, uint16_t baseUniverse)
@@ -1245,7 +1212,9 @@ void onArtDmx(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t* dat
     if (configActive.portA_mode != PORT_TYPE_WS2812 &&
         universe == configActive.portA_uni[0])
     {
-        dmx_write(dmxPortA, data, length);
+        dmxBufferA[0] = 0x00;
+        memcpy(&dmxBufferA[1], data, length);
+        dmx_write(dmxPortA, dmxBufferA, length + 1);
         dmx_send(dmxPortA);
         statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
     }
@@ -1254,136 +1223,14 @@ void onArtDmx(uint16_t universe, uint16_t length, uint8_t sequence, uint8_t* dat
     if (configActive.portB_mode != PORT_TYPE_WS2812 &&
         universe == configActive.portB_uni[0])
     {
-        dmx_write(dmxPortB, data, length);
+        dmxBufferB[0] = 0x00;
+        memcpy(&dmxBufferB[1], data, length);
+        dmx_write(dmxPortB, dmxBufferB, length + 1);
         dmx_send(dmxPortB);
         statusStrip.SetPixelColor(ADDR_STATUS_LED_B, blue);
     }
 #endif
 }
-// void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEnabled) {
-//   uint16_t maxChans = 3*LIM_PIXELS_PER_ARTNET_PORT;
-//   uint8_t* dmxData = artRDM.getDMX(group, port);
-//   uint16_t pixStartIndex = port * maxChans;
-//   uint16_t pixEndIndex = 0;
-//   uint16_t indexDmxData = 0;
-
-//   artDmxReceiving = true;
-
-//   if (portA[0] == group) {
-//     // WS2812 mode:
-//     if (configActive.portA_mode == PORT_TYPE_WS2812) {
-//       statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
-
-//       // FX MAP mode:
-//       if (configActive.portA_pixel_mode == PIXEL_FX_MODE_MAP) {
-//         // Limit channels:
-//         if (numChans > maxChans) {
-//           numChans = maxChans;
-//         }
-        
-//         // Copy DMX data to the pixels buffer:
-//         pixEndIndex = (pixStartIndex + numChans) / 3;
-//         indexDmxData = 0;
-//         if (pixPortA != NULL) {
-//           for (uint16_t i = pixStartIndex; i < pixEndIndex; i++) {
-//             pixPortA->SetPixelColor(i, RgbColor(dmxData[indexDmxData], dmxData[indexDmxData + 1], dmxData[indexDmxData + 2]));
-//             indexDmxData = indexDmxData + 3;
-//           }
-//         }
-        
-//         // Output to pixel strip:
-//         if (!syncEnabled) {
-//           pixDone = false;
-//         }
-
-//         return;
-
-//       // FX 12 Mode:
-//       } else if (port == portA[1]) {
-//           uint16_t pixFXAddr = configActive.portA_pixel_startFX - 1;
-          
-//           pixFXA->Intensity = dmxData[pixFXAddr + 0];
-//           pixFXA->setFX(dmxData[pixFXAddr + 1]);
-//           pixFXA->setSpeed(dmxData[pixFXAddr + 2]);
-//           pixFXA->Pos = dmxData[pixFXAddr + 3];
-//           pixFXA->Size = dmxData[pixFXAddr + 4];
-//           pixFXA->setColour1((dmxData[pixFXAddr + 5] << 16) | (dmxData[pixFXAddr + 6] << 8) | dmxData[pixFXAddr + 7]);
-//           pixFXA->setColour2((dmxData[pixFXAddr + 8] << 16) | (dmxData[pixFXAddr + 9] << 8) | dmxData[pixFXAddr + 10]);
-//           pixFXA->Size1 = dmxData[pixFXAddr + 11];
-//           //pixFXA->Fade = dmxData[pixFXAddr + 12];
-//           pixFXA->NewData = 1;
-//       }
-//     // DMX modes:
-//     } else if (configActive.portA_mode != PORT_TYPE_DMX_IN && port == portA[1]) {
-//       dmxA.chanUpdate(numChans);
-//       statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
-//     }
-//   #ifndef SOLE_OUTPUT
-//   } else if (portB[0] == group) {
-//     /* if (port == portB[1]) {
-//       dmxB.chanUpdate(numChans);
-//       statusStrip.SetPixelColor(ADDR_STATUS_LED_B, blue);
-//     } */
-//     // WS2812 mode:
-//     if (configActive.portB_mode == PORT_TYPE_WS2812) {
-//       statusStrip.SetPixelColor(ADDR_STATUS_LED_B, blue);
-      
-//       // FX MAP mode:
-//       if (configActive.portB_pixel_mode == PIXEL_FX_MODE_MAP) {
-//         // Limit channels:
-//         if (numChans > maxChans) {
-//           numChans = maxChans;
-//         }
-        
-//         // Copy DMX data to the pixels buffer:
-//         pixEndIndex = (pixStartIndex + numChans) / 3;
-//         indexDmxData = 0;
-//         if (pixPortB != NULL) {
-//           for (uint16_t i = pixStartIndex; i < pixEndIndex; i++) {
-//             pixPortB->SetPixelColor(i, RgbColor(dmxData[indexDmxData], dmxData[indexDmxData + 1], dmxData[indexDmxData + 2]));
-//             indexDmxData = indexDmxData + 3;
-//           }
-//         }
-        
-//         // Output to pixel strip:
-//         if (!syncEnabled) {
-//           pixDone = false;
-//         }
-
-//         return;
-
-//       // FX 12 mode:
-//       } else if (port == portB[1]) {
-//         uint16_t pixFXAddr = configActive.portB_pixel_startFX - 1;
-        
-//         pixFXB->Intensity = dmxData[pixFXAddr + 0];
-//         pixFXB->setFX(dmxData[pixFXAddr + 1]);
-//         pixFXB->setSpeed(dmxData[pixFXAddr + 2]);
-//         pixFXB->Pos = dmxData[pixFXAddr + 3];
-//         pixFXB->Size = dmxData[pixFXAddr + 4];
-//         pixFXB->setColour1((dmxData[pixFXAddr + 5] << 16) | (dmxData[pixFXAddr + 6] << 8) | dmxData[pixFXAddr + 7]);
-//         pixFXB->setColour2((dmxData[pixFXAddr + 8] << 16) | (dmxData[pixFXAddr + 9] << 8) | dmxData[pixFXAddr + 10]);
-//         pixFXB->Size1 = dmxData[pixFXAddr + 11];
-//         //pixFXB->Fade = dmxData[pixFXAddr + 12];
-//         pixFXB->NewData = 1;
-//       }
-//     // DMX modes:
-//     } else if (configActive.portB_mode != PORT_TYPE_DMX_IN && port == portB[1]) {
-//       dmxB.chanUpdate(numChans);
-//       statusStrip.SetPixelColor(ADDR_STATUS_LED_B, blue);
-//     }
-//   #endif
-//   }
-// }
-
-// void cbArtRdmReceive(uint8_t group, uint8_t port, rdm_data* c) {
-//   if (portA[0] == group && portA[1] == port)
-//     dmxA.rdmSendCommand(c);
-//   #ifndef SOLE_OUTPUT
-//     else if (portB[0] == group && portB[1] == port)
-//       dmxB.rdmSendCommand(c);
-//   #endif
-// }
 
 void onArtSync()
 {
@@ -1445,134 +1292,6 @@ void handleArtSyncTimeouts()
 #endif
 }
 
-// void cbArtSync() {
-//   #ifdef SOLE_OUTPUT
-//   if (configActive.portA_mode == PORT_TYPE_WS2812) {
-//     rdmPause(1);
-//     // pixDone = pixDriver.show();
-//     if (pixPortA != NULL) {
-//       pixPortA->Show();
-//       pixDone = pixPortA->CanShow();
-//     }
-//     rdmPause(0);
-//   } else if (configActive.portA_mode != PORT_TYPE_DMX_IN) {
-//     dmxA.unPause();
-//   }
-//   #else
-//   if (configActive.portA_mode == PORT_TYPE_WS2812 || configActive.portB_mode == PORT_TYPE_WS2812) {
-//     rdmPause(1);
-//     if (pixPortA != NULL) {
-//       pixPortA->Show();
-//       pixDone = pixPortA->CanShow();
-//     }
-//     if (pixPortB != NULL) {
-//       pixPortB->Show();
-//       pixDone |= pixPortB->CanShow();
-//     }
-//     rdmPause(0);
-//   } else {
-//     if (configActive.portA_mode != PORT_TYPE_DMX_IN) {
-//       dmxA.unPause();
-//     }
-//     if (configActive.portB_mode != PORT_TYPE_DMX_IN) {
-//       dmxB.unPause();
-//     }
-//   }
-//   #endif
-// }
-
-// void cbArtIpChanged() {
-//   if (artRDM.getDHCP()) {
-//     config.net_sta_dhcp = true;
-//     config.net_sta_gateway = INADDR_NONE;
-//   } else {
-//     config.net_sta_dhcp = false;
-//     config.net_sta_ip = artRDM.getIP();
-//     config.net_sta_subnet = artRDM.getSubnetMask();
-//     config.net_sta_gateway = config.net_sta_ip;
-//     config.net_sta_gateway[3] = 1;
-//     config.net_sta_broadcast = {
-//       (uint8_t)((~config.net_sta_subnet[0]) | (config.net_sta_ip[0] & config.net_sta_subnet[0])), 
-//       (uint8_t)((~config.net_sta_subnet[1]) | (config.net_sta_ip[1] & config.net_sta_subnet[1])), 
-//       (uint8_t)((~config.net_sta_subnet[2]) | (config.net_sta_ip[2] & config.net_sta_subnet[2])), 
-//       (uint8_t)((~config.net_sta_subnet[3]) | (config.net_sta_ip[3] & config.net_sta_subnet[3]))  
-//     };
-//   }
-  
-//   // Store new network configuration:
-//   config_save();
-
-//   doReboot = true;
-// }
-
-// void cbArtAddressChanged() {
-//   memcpy(&config.gen_nodeName, artRDM.getShortName(), ARTNET_SHORT_NAME_LENGTH);
-//   memcpy(&config.gen_longName, artRDM.getLongName(), ARTNET_LONG_NAME_LENGTH);
-
-//   // Port A:
-//   config.portA_net = artRDM.getNet(portA[0]);
-//   config.portA_subnet = artRDM.getSubNet(portA[0]);
-//   config.portA_uni[0] = artRDM.getUni(portA[0], portA[1]);
-//   config.portA_merge = artRDM.getMerge(portA[0], portA[1]);
-//   if (artRDM.getE131(portA[0], portA[1]) == true) {
-//     config.portA_prot = PORT_PROT_ARTNET_SACN;
-//   } else {
-//     config.portA_prot = PORT_PROT_ARTNET;
-//   }
-
-//   // Port B:
-//   #ifndef SOLE_OUTPUT
-//     config.portB_net = artRDM.getNet(portB[0]);
-//     config.portB_subnet = artRDM.getSubNet(portB[0]);
-//     config.portB_uni[0] = artRDM.getUni(portB[0], portB[1]);
-//     config.portB_merge = artRDM.getMerge(portB[0], portB[1]);
-//     if (artRDM.getE131(portB[0], portB[1]) == true) {
-//       config.portB_prot = PORT_PROT_ARTNET_SACN;
-//     } else {
-//       config.portB_prot = PORT_PROT_ARTNET;
-//     }
-//   #endif
-  
-//   // Store new address configuration:
-//   config_save();
-// }
-
-// void cbDmxSendTodA() {
-//   artRDM.artTODData(portA[0], portA[1], dmxA.todMan(), dmxA.todDev(), dmxA.todCount(), dmxA.todStatus());
-// }
-
-// void cbDmxRdmReceiveA(rdm_data* c) {
-//   artRDM.rdmResponse(c, portA[0], portA[1]);
-// }
-
-// #ifndef SOLE_OUTPUT
-// void cbDmxSendTodB() {
-//   artRDM.artTODData(portB[0], portB[1], dmxB.todMan(), dmxB.todDev(), dmxB.todCount(), dmxB.todStatus());
-// }
-
-// void cbDmxRdmReceiveB(rdm_data* c) {
-//   artRDM.rdmResponse(c, portB[0], portB[1]);
-// }
-// #endif
-
-// void cbArtTodRequest(uint8_t group, uint8_t port) {
-//   if (portA[0] == group && portA[1] == port)
-//     artRDM.artTODData(portA[0], portA[1], dmxA.todMan(), dmxA.todDev(), dmxA.todCount(), dmxA.todStatus());
-//   #ifndef SOLE_OUTPUT
-//     else if (portB[0] == group && portB[1] == port)
-//       artRDM.artTODData(portB[0], portB[1], dmxB.todMan(), dmxB.todDev(), dmxB.todCount(), dmxB.todStatus());
-//   #endif
-// }
-
-// void cbArtTodFlush(uint8_t group, uint8_t port) {
-//   if (portA[0] == group && portA[1] == port)
-//     dmxA.rdmDiscovery();
-//   #ifndef SOLE_OUTPUT
-//     else if (portB[0] == group && portB[1] == port)
-//       dmxB.rdmDiscovery();
-//   #endif
-// }
-
 void handleDmxInput()
 {
     dmx_packet_t packet;
@@ -1580,24 +1299,22 @@ void handleDmxInput()
     if (dmx_receive(dmxPortA, &packet, 0))
     {
         uint16_t size = dmx_read(dmxPortA, dmxBufferA, DMX_MAX_PACKET_SIZE);
-        for (uint8_t i = 0; i < size; i++) {
-          artnet.setByte(i, dmxBufferA[i]);
+
+        if (size > 1) {
+            uint16_t dmxLen = size - 1;  // exclude start code
+
+            for (uint16_t i = 0; i < dmxLen; i++) {
+                artnet.setByte(i, dmxBufferA[i + 1]);
+            }
+
+            artnet.setLength(dmxLen);
+            artnet.setUniverse(configActive.portA_uni[0]);
+            artnet.write();
+
+            statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
         }
-        artnet.setLength(size);
-        artnet.setUniverse(configActive.portA_uni[0]);
-        artnet.write();
-        statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
     }
 }
-
-// void cbDmxInputReceive(uint16_t num) {
-//   // Double buffer switch
-//   byte* tmp = dataIn;
-//   dataIn = dmxA.getChans();
-//   dmxA.setBuffer(tmp);
-  
-//   newDmxIn = true;
-// }
 
 void initArtnet() {
     artnet.begin();
@@ -1616,135 +1333,6 @@ void initArtnet() {
 #ifdef DEBUG
     Serial.println("ArtNet started");
 #endif
-
-  // bool useE131 = false;
-
-  // // Initialize ArtNet:
-  // if (accessPointStarted)
-  //   artRDM.init(configActive.net_ap_ip, configActive.net_ap_subnet, true, configActive.gen_nodeName, configActive.gen_longName, CONF_ARTNET_OEM, CONF_ESTA_MAN, macAddr);
-  // else
-  //   artRDM.init(configActive.net_sta_ip, configActive.net_sta_subnet, configActive.net_sta_dhcp, configActive.gen_nodeName, configActive.gen_longName, CONF_ARTNET_OEM, CONF_ESTA_MAN, macAddr);
-
-  // // Set firmware:
-  // artRDM.setFirmwareVersion(CONF_ART_FIRM_VER);
-
-  // // ----- Port A -----
-  // // Add Group:
-  // portA[0] = artRDM.addGroup(configActive.portA_net, configActive.portA_subnet);
-
-  // // Add Port:
-  // // WS2812 uses PORT_TYPE_DMX_OUT - the rest use the value assigned
-  // if (configActive.portA_mode == PORT_TYPE_WS2812)
-  //   portA[1] = artRDM.addPort(portA[0], 0, configActive.portA_uni[0], PORT_TYPE_DMX_OUT, configActive.portA_merge);
-  // else
-  //   portA[1] = artRDM.addPort(portA[0], 0, configActive.portA_uni[0], configActive.portA_mode, configActive.portA_merge);
-
-  // // Set E131:
-  // useE131 = (configActive.portA_prot == PORT_PROT_ARTNET_SACN) ? true : false;
-  // artRDM.setE131(portA[0], portA[1], useE131);
-  // artRDM.setE131Uni(portA[0], portA[1], configActive.portA_SACNuni[0]);
-
-  // // Add extra Artnet ports for WS2812:
-  // if (configActive.portA_mode == PORT_TYPE_WS2812 && configActive.portA_pixel_mode == PIXEL_FX_MODE_MAP) {
-  //   if (configActive.portA_pixel_count > LIM_PIXELS_PER_ARTNET_PORT) {
-  //     portA[2] = artRDM.addPort(portA[0], 1, configActive.portA_uni[1], PORT_TYPE_DMX_OUT, configActive.portA_merge);
-  //     artRDM.setE131(portA[0], portA[2], useE131);
-  //     artRDM.setE131Uni(portA[0], portA[2], configActive.portA_SACNuni[1]);
-  //   }
-  //   if (configActive.portA_pixel_count > (2*LIM_PIXELS_PER_ARTNET_PORT)) {
-  //     portA[3] = artRDM.addPort(portA[0], 2, configActive.portA_uni[2], PORT_TYPE_DMX_OUT, configActive.portA_merge);
-  //     artRDM.setE131(portA[0], portA[3], useE131);
-  //     artRDM.setE131Uni(portA[0], portA[3], configActive.portA_SACNuni[2]);
-  //   }
-  //   if (configActive.portA_pixel_count > (3*LIM_PIXELS_PER_ARTNET_PORT)) {
-  //     portA[4] = artRDM.addPort(portA[0], 3, configActive.portA_uni[3], PORT_TYPE_DMX_OUT, configActive.portA_merge);
-  //     artRDM.setE131(portA[0], portA[4], useE131);
-  //     artRDM.setE131Uni(portA[0], portA[4], configActive.portA_SACNuni[3]);
-  //   }
-  // }
-
-  // // ----- Port B -----
-  // #ifndef SOLE_OUTPUT
-  //   // Add Group:
-  //   portB[0] = artRDM.addGroup(configActive.portB_net, configActive.portB_subnet);
-
-  //   // Add Port:
-  //   // WS2812 uses PORT_TYPE_DMX_OUT - the rest use the value assigned
-  //   if (configActive.portB_mode == PORT_TYPE_WS2812)
-  //     portB[1] = artRDM.addPort(portB[0], 0, configActive.portB_uni[0], PORT_TYPE_DMX_OUT, configActive.portB_merge);
-  //   else
-  //     portB[1] = artRDM.addPort(portB[0], 0, configActive.portB_uni[0], configActive.portB_mode, configActive.portB_merge);
-
-  //   // Set E131:
-  //   useE131 = (configActive.portB_prot == PORT_PROT_ARTNET_SACN) ? true : false;
-  //   artRDM.setE131(portB[0], portB[1], useE131);
-  //   artRDM.setE131Uni(portB[0], portB[1], configActive.portB_SACNuni[0]);
-
-  //   // Add extra Artnet ports for WS2812:
-  //   if (configActive.portB_mode == PORT_TYPE_WS2812 && configActive.portB_pixel_mode == PIXEL_FX_MODE_MAP) {
-  //     if (configActive.portB_pixel_count > LIM_PIXELS_PER_ARTNET_PORT) {
-  //       portB[2] = artRDM.addPort(portB[0], 1, configActive.portB_uni[1], PORT_TYPE_DMX_OUT, configActive.portB_merge);
-  //       artRDM.setE131(portB[0], portB[2], useE131);
-  //       artRDM.setE131Uni(portB[0], portB[2], configActive.portB_SACNuni[1]);
-  //     }
-  //     if (configActive.portB_pixel_count > (2*LIM_PIXELS_PER_ARTNET_PORT)) {
-  //       portB[3] = artRDM.addPort(portB[0], 2, configActive.portB_uni[2], PORT_TYPE_DMX_OUT, configActive.portB_merge);
-  //       artRDM.setE131(portB[0], portB[3], useE131);
-  //       artRDM.setE131Uni(portB[0], portB[3], configActive.portB_SACNuni[2]);
-  //     }
-  //     if (configActive.portB_pixel_count > (3*LIM_PIXELS_PER_ARTNET_PORT)) {
-  //       portB[4] = artRDM.addPort(portB[0], 3, configActive.portB_uni[3], PORT_TYPE_DMX_OUT, configActive.portB_merge);
-  //       artRDM.setE131(portB[0], portB[4], useE131);
-  //       artRDM.setE131Uni(portB[0], portB[4], configActive.portB_SACNuni[3]);
-  //     }
-  //   }
-  // #endif
-
-  // // Add required callback functions:
-  // artnet.setArtDmxCallback(onArtDmx);
-  // artRDM.setArtDMXCallback(cbArtDmxReceive);
-  // artRDM.setArtRDMCallback(cbArtRdmReceive);
-  // artRDM.setArtSyncCallback(cbArtSync);
-  // artRDM.setArtIPCallback(cbArtIpChanged);
-  // artRDM.setArtAddressCallback(cbArtAddressChanged);
-  // artRDM.setTODRequestCallback(cbArtTodRequest);
-  // artRDM.setTODFlushCallback(cbArtTodFlush);
-
-  // // Set NodeReport according reset info:
-  // switch (esp_reset_reason()) {
-  //   case ESP_RST_POWERON:  // normal start
-  //   case ESP_RST_EXT:
-  //   case ESP_RST_SW:
-  //     artRDM.setNodeReport((char*)"OK: Device started", ARTNET_RC_POWER_OK);
-  //     nextNodeReport = millis() + 4000;
-  //     break;
-  //   case ESP_RST_WDT:
-  //     artRDM.setNodeReport((char*)"ERROR: (HWDT) Unexpected device restart", ARTNET_RC_POWER_FAIL);
-  //     strcpy(nodeError, "Restart error: HWDT");
-  //     nextNodeReport = millis() + 10000;
-  //     nodeErrorTimeout = millis() + 30000;
-  //     break;
-  //   case ESP_RST_PANIC:
-  //     artRDM.setNodeReport((char*)"ERROR: (EXCP) Unexpected device restart", ARTNET_RC_POWER_FAIL);
-  //     strcpy(nodeError, "Restart error: EXCP");
-  //     nextNodeReport = millis() + 10000;
-  //     nodeErrorTimeout = millis() + 30000;
-  //     break;
-  //   case ESP_RST_TASK_WDT:
-  //     artRDM.setNodeReport((char*)"ERROR: (SWDT) Unexpected device restart", ARTNET_RC_POWER_FAIL);
-  //     strcpy(nodeError, "Error on Restart: SWDT");
-  //     nextNodeReport = millis() + 10000;
-  //     nodeErrorTimeout = millis() + 30000;
-  //     break;
-  //   case ESP_RST_DEEPSLEEP:
-  //     // not used
-  //     break;
-  // }
-  
-  // // Start artnet
-  // artRDM.begin();
-
-  // yield();  // Prevent watchdog resets
 }
 
 void initPorts() {
@@ -1817,100 +1405,6 @@ void initDisplay() {
 
 /* ############# Init functions end ############# */
 
-// void doNodeReport() {
-//   if (nextNodeReport > millis()) {
-//     // Time for next node report not reached
-//     return;
-//   }
-  
-//   char c[ARTNET_NODE_REPORT_LENGTH];
-//   char pixelInfo[20];
-
-//   if (nodeErrorTimeout > millis()) {
-//     // No timeout -> Do next node report in 2s
-//     nextNodeReport = millis() + 2000;
-//   } else {
-//     // Timeout -> Do next node report in 5s
-//     nextNodeReport = millis() + 5000;
-//   }
-  
-//   if (nodeError[0] != '\0' && !nodeErrorShowing && nodeErrorTimeout > millis()) {
-//     nodeErrorShowing = true;
-//     strcpy(c, nodeError);
-//   } else {
-//     nodeErrorShowing = false;
-//     strcpy(c, "OK: PortA:");
-//     switch (configActive.portA_mode) {
-//       case PORT_TYPE_DMX_OUT:
-//         strcat(c, " DMX Out");
-//         break;
-//       case PORT_TYPE_RDM_OUT:
-//         strcat(c, " RDM Out");
-//         break;
-//       case PORT_TYPE_DMX_IN:
-//         strcat(c, " DMX In");
-//         break;
-//       case PORT_TYPE_WS2812:
-//         if (configActive.portA_pixel_mode == PIXEL_FX_MODE_12) {
-//           strcat(c, " 12chan");
-//         }
-//         sprintf(pixelInfo, " WS2812 %ipixels", configActive.portA_pixel_count);
-//         strcat(c, pixelInfo);
-//         break;
-//     }
-  
-//     #ifndef SOLE_OUTPUT
-//       strcat(c, ". PortB:");
-//       switch (configActive.portB_mode) {
-//         case PORT_TYPE_DMX_OUT:
-//           strcat(c, " DMX Out");
-//           break;
-//         case PORT_TYPE_RDM_OUT:
-//           strcat(c, " RDM Out");
-//           break;
-//         case PORT_TYPE_DMX_IN:
-//           /* Not possible -> Do nothing here */
-//           break;
-//         case PORT_TYPE_WS2812:
-//           if (configActive.portB_pixel_mode == PIXEL_FX_MODE_12) {
-//             strcat(c, " 12chan");
-//           }
-//           sprintf(pixelInfo, " WS2812 %ipixels", configActive.portB_pixel_count);
-//           strcat(c, pixelInfo);
-//           break;
-//       }
-//     #endif
-//   }
-  
-//   artRDM.setNodeReport(c, ARTNET_RC_POWER_OK);
-// }
-
-// void pauseDmxOutputHandler(bool pause) {
-//   if (pause == true) {
-//     if ((dmxOutAPaused == false) && (configActive.portA_mode != PORT_TYPE_WS2812) && (configActive.portA_mode != PORT_TYPE_DMX_IN)) {
-//       dmxA.pause();
-//       dmxOutAPaused = true;
-//     }
-//     #ifndef SOLE_OUTPUT
-//       if ((dmxOutBPaused == false) && (configActive.portB_mode != PORT_TYPE_WS2812)) {
-//         dmxB.pause();
-//         dmxOutBPaused = true;
-//       }
-//     #endif
-//   } else {
-//     if (dmxOutAPaused == true) {
-//       dmxA.unPause();
-//       dmxOutAPaused = false;
-//     }
-//     #ifndef SOLE_OUTPUT
-//       if (dmxOutBPaused == true) {
-//         dmxB.unPause();
-//         dmxOutBPaused = false;
-//       }
-//     #endif
-//   }
-// }
-
 /* ______________ Setup function ______________ */
 void setup(void) {
   #ifdef DEBUG
@@ -1952,13 +1446,20 @@ void setup(void) {
   #endif
 
   // Start LittleFS file system
-  LittleFS.begin();
-  // Load saved values or store defaults
-  if (resetDefaults == false) {
-    config_load();
-  } else {
-    config_init();
-    config_save();
+  bool fsOk = LittleFS.begin(false);
+  if (!fsOk) {
+      #ifdef DEBUG
+        Serial.println("[FS] Mount failed, formatting");
+      #endif
+      LittleFS.format();
+      fsOk = LittleFS.begin();
+  }
+  if (!fsOk || resetDefaults || !config_load()) {
+      #ifdef DEBUG
+        Serial.println("[CFG] Using defaults");
+      #endif
+      config_init();
+      config_save();
   }
 
   // Store our counters for resetting defaults
@@ -1993,7 +1494,7 @@ void setup(void) {
   #ifndef DEBUG
     // Don't open any ports for a bit to let the ESP spill it's garbage to serial
     while (millis() < 3500)
-      yield();  // Prevent watchdog resets
+      vTaskDelay(1);
 
     initPorts();
   #endif
@@ -2014,8 +1515,30 @@ void setup(void) {
 }
 /* ______________ Setup function end ______________ */
 
+#ifdef DEBUG
+void logSystemHealth()
+{
+    static uint32_t last = 0;
+    if (millis() - last < 5000) return;
+    last = millis();
+
+    Serial.printf(
+        "[SYS] FreeHeap=%u MinHeap=%u MaxAlloc=%u\n",
+        ESP.getFreeHeap(),
+        ESP.getMinFreeHeap(),
+        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)
+    );
+
+    Serial.printf("[NET] WiFi clients: %d\n", WiFi.softAPgetStationNum());
+}
+#endif
+
 /* _________________ loop function ________________ */
 void loop(void){
+  #ifdef DEBUG
+  logSystemHealth();
+  #endif
+
   // If the device lasts for 6 seconds, clear our reset timers
   if (config.resetCounter != 0 && millis() > TIMEOUT_CLEAR_COUNTERS) {
     config.resetCounter = 0;
@@ -2031,11 +1554,8 @@ void loop(void){
   if (accessPointStarted == true) {
     dnsServer.processNextRequest();
   }
-
-  handleWifiScan();
   
   // Get the node details and handle Artnet
-  // doNodeReport();
   artnet.read();
 
   if (artnet.getOpcode() == ART_SYNC)
@@ -2044,61 +1564,17 @@ void loop(void){
   }
 
   handleArtSyncTimeouts();
-  
-  yield();  // Prevent watchdog resets
 
   #ifndef DEBUG
     // When no ArtNet data is received anymore, pause DMX output after timeout for better webserver performance:
     if ((artDmxReceiving == false) && (millis() > artDmxReceiveTimer)) {
-      // pauseDmxOutputHandler(true);
     } else {
       artDmxReceiveTimer = millis() + TIMEOUT_DMX;
       artDmxReceiving = false;
-      // pauseDmxOutputHandler(false);
     }
-    // // When someone is connected to webserver, pause DMX output (disarm UART interrupts) for better webserver performance:
-    // if (ESPUI.WebSocket()->count() > 0) {
-    //   pauseDmxOutputHandler(true);
-    // } else if (ESPUI.WebSocket()->count() == 0) {
-    //   pauseDmxOutputHandler(false);
-    // }
-
-    // DMX handlers
-    // if (configActive.portA_mode != PORT_TYPE_WS2812) {
-    //   dmxA.handler();
-    // }
-    // #ifndef SOLE_OUTPUT
-    //   if (configActive.portB_mode != PORT_TYPE_WS2812) {
-    //     dmxB.handler();
-    //   }
-    // #endif
-
-    // if (ESPUI.WebSocket()->count() == 0) {
-    //   if (configActive.portA_mode == PORT_TYPE_WS2812 &&
-    //       configActive.portA_pixel_mode != PIXEL_FX_MODE_MAP &&
-    //       pixFXA && pixFXA->Update())
-    //   {
-    //       pixDone = false;
-    //   }
-
-    //   #ifndef SOLE_OUTPUT
-    //   if (configActive.portB_mode == PORT_TYPE_WS2812 &&
-    //       configActive.portB_pixel_mode != PIXEL_FX_MODE_MAP &&
-    //       pixFXB && pixFXB->Update())
-    //   {
-    //       pixDone = false;
-    //   }
-    // }
   #endif
 
   // Do pixel string output
-  // if (!pixDone)
-  // {
-  //     if (pixPortA) pixPortA->Show();
-  // #ifndef SOLE_OUTPUT
-  //     if (pixPortB) pixPortB->Show();
-  // #endif
-  // }
   uint32_t now = millis();
   // ---- Port A ----
   if (pendingShowA &&
@@ -2125,26 +1601,11 @@ void loop(void){
   #endif
 
   // Handle received DMX
-  // if (newDmxIn) { 
-  //   uint8_t g, p;
-  //   newDmxIn = false;
-  //   g = portA[0];
-  //   p = portA[1];
-    
-  //   IPAddress bc = configActive.net_dmxIn_broadcast;
-  //   artRDM.sendDMX(g, p, bc, dataIn, 512);
-
-  //   statusStrip.SetPixelColor(ADDR_STATUS_LED_A, blue);
-  // }
   if (configActive.portA_mode == PORT_TYPE_DMX_IN)
         handleDmxInput();
 
   // Handle rebooting the system
   if (doReboot) {
-    // char c[ARTNET_NODE_REPORT_LENGTH] = "Device rebooting...";
-    // artRDM.setNodeReport(c, ARTNET_RC_POWER_OK);
-    // artRDM.artPollReply();
-
     ESP.restart();
   }
 
@@ -2155,12 +1616,7 @@ void loop(void){
       #ifdef DEBUG
         Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
       #endif
-      // Flash main status LED
-      // if (nodeError[0] != '\0') {
-      //   statusStrip.SetPixelColor(ADDR_STATUS_LED_S, red);
-      // } else {
         statusStrip.SetPixelColor(ADDR_STATUS_LED_S, black);
-      // }
       // Reset port status LEDs in case of not receiving data anymore
       if (statusStrip.GetPixelColor(ADDR_STATUS_LED_A) == blue) {
         if (configActive.portA_mode == PORT_TYPE_DMX_OUT || configActive.portA_mode == PORT_TYPE_RDM_OUT) {
