@@ -13,18 +13,8 @@ You should have received a copy of the GNU General Public License along with thi
 If not, see http://www.gnu.org/licenses/
 */
 
-
 #include "wsFX.h"
 
-/* pixPatterns::pixPatterns(uint8_t port, ws2812Driver* p) {
-  pixDriver = p;
-  Port = port;
-  NewData = 0;
-  lastUpdate = 0;
-  Intensity = 0;
-  Speed = 0;
-  TotalSteps = 100;
-} */
 pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr) {
   pixBus0 = nullptr;
   pixBus1 = nullptr;
@@ -151,7 +141,6 @@ void pixPatterns::Static(void) {
 
 // Update the static look
 void pixPatterns::StaticUpdate(void) {
-  // TotalSteps = pixDriver->numPixels(Port);
   if (pixBus0 != nullptr) {
     TotalSteps = pixBus0->PixelCount();
   } else if (pixBus1 != nullptr) {
@@ -231,7 +220,6 @@ void pixPatterns::StaticUpdate(void) {
     else
       c = Colour2;
     
-    // pixDriver->setPixel(Port, p, c);
     if (pixBus0 != nullptr) {
       pixBus0->SetPixelColor(p, RgbColor(Red(c), Green(c), Blue(c)));
     } else if (pixBus1 != nullptr) {
@@ -269,7 +257,6 @@ void pixPatterns::RainbowCycleUpdate(void) {
       uint8_t g = map(Green(c), 0, 255, 0, Intensity);
       uint8_t b = map(Blue(c), 0, 255, 0, Intensity);
       
-      // pixDriver->setPixel(Port, p, Colour(r, g, b));
       if (pixBus0 != nullptr) {
         pixBus0->SetPixelColor(p, RgbColor(r, g, b));
       } else if (pixBus1 != nullptr) {
@@ -304,7 +291,6 @@ void pixPatterns::TheaterChaseUpdate(void) {
   
   for(int i = 0; i < numPixels; i++) {
     if ((i + a) % mSize == 0) {
-      // pixDriver->setPixel(Port, i, Colour1);
       if (pixBus0 != nullptr) {
         pixBus0->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
       } else if (pixBus1 != nullptr) {
@@ -312,7 +298,6 @@ void pixPatterns::TheaterChaseUpdate(void) {
       }
     }
     else {
-      // pixDriver->setPixel(Port, i, Colour2);
       if (pixBus0 != nullptr) {
         pixBus0->SetPixelColor(i, RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
       } else if (pixBus1 != nullptr) {
@@ -347,7 +332,6 @@ void pixPatterns::TwinkleUpdate(void) {
   // Clear strip
   if (Index % 3 == 0 || Speed < 20 || Speed > 235) {
     for (uint16_t i = 0; i < numPixels; i++) {
-      // pixDriver->setPixel(Port, i, Colour1);
       if (pixBus0 != nullptr) {
         pixBus0->SetPixelColor(i, RgbColor(Red(Colour1), Green(Colour1), Blue(Colour1)));
       } else if (pixBus1 != nullptr) {
@@ -360,7 +344,6 @@ void pixPatterns::TwinkleUpdate(void) {
   if (Index % 3 == 0 && Speed > 20 && Speed < 235) {
     uint16_t numTwinks = map(Size, 0, 255, 1, (numPixels / 10));
     for (uint8_t n = 0; n < numTwinks; n++) {
-      // pixDriver->setPixel(Port, random(0, numPixels), Colour2);
       if (pixBus0 != nullptr) {
         pixBus0->SetPixelColor(random(0, numPixels), RgbColor(Red(Colour2), Green(Colour2), Blue(Colour2)));
       } else if (pixBus1 != nullptr) {
@@ -411,4 +394,3 @@ uint32_t pixPatterns::Wheel(byte WheelPos) {
     return Colour(WheelPos * 3, 255 - WheelPos * 3, 0);
   }
 }
-

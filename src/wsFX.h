@@ -13,13 +13,10 @@ You should have received a copy of the GNU General Public License along with thi
 If not, see http://www.gnu.org/licenses/
 */
 
-
 #ifndef wsFX_h
 #define wsFX_h
 
 #include <Arduino.h>
-
-// #include "ws2812Driver.h"
 #include <NeoPixelBus.h>
 
 enum  pattern { STATIC, RAINBOW_CYCLE, THEATER_CHASE, TWINKLE };
@@ -39,13 +36,10 @@ class pixPatterns {
     uint8_t Size1, Size, Fade, Pos; // size, fading & position for static looks
     uint8_t Intensity;
     bool NewData;
-    
-    // uint8_t Port;                 // port number.
-    // ws2812Driver* pixDriver;      // the pixel driver
+  
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBus0;
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBus1;
     
-    // pixPatterns(uint8_t port, ws2812Driver* p);
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr);
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBusPtr);
     bool Update(void);

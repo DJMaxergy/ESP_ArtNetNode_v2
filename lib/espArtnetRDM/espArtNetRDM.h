@@ -1,32 +1,34 @@
 
 /*
-espArtNetRDM v1 (pre-release) library
-Copyright (c) 2016, Matthew Tong
-https://github.com/mtongnz/
-Modified from https://github.com/forkineye/E131/blob/master/E131.h
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
-License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any
-later version.
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
-warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
-You should have received a copy of the GNU General Public License along with this program.
-If not, see http://www.gnu.org/licenses/
+  espArtNetRDM v1 (pre-release) library
+  Copyright (c) 2016, Matthew Tong
+  https://github.com/mtongnz/
+  Modified from https://github.com/forkineye/E131/blob/master/E131.h
+  This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+  License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any
+  later version.
+  This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License along with this program.
+  If not, see http://www.gnu.org/licenses/
 */
-
-
 
 #ifndef espArtNetRDM_h
 #define espArtNetRDM_h
 
-#include <ESP8266WiFi.h>
+#if defined(ESP32)
+  #include <WiFi.h>
+#elif defined(ESP8266)
+  #include <ESP8266WiFi.h>
+  extern "C" {
+  #include "mem.h"
+  }
+#endif
+
 #include <WiFiUdp.h>
-extern "C" {
-#include "mem.h"
-}
 #include "rdmDataTypes.h"
 #include "artnet.h"
 #include "e131.h"
-
 
 typedef void (*artDMXCallBack)(uint8_t, uint8_t, uint16_t, bool);
 typedef void (*artSyncCallBack)(void);
@@ -53,17 +55,17 @@ struct _port_def {
   uint8_t e131Priority;
 
   // Port universe
-  byte portUni;
+  uint8_t portUni;
   
   // DMX final values buffer
-  byte* dmxBuffer;
+  uint8_t* dmxBuffer;
   uint16_t dmxChans;
   bool ownBuffer;
   bool mergeHTP;
   bool merging;
 
   // ArtDMX input buffers for 2 IPs
-  byte* ipBuffer;
+  uint8_t* ipBuffer;
   uint16_t ipChans[2];
 
   // IPs for current data + time of last packet
@@ -86,11 +88,11 @@ typedef struct _port_def port_def;
 
 struct _group_def {
   // Port Address
-  byte netSwitch = 0x00;
-  byte subnet = 0x00;
+  uint8_t netSwitch = 0x00;
+  uint8_t subnet = 0x00;
   
   port_def* ports[4] = {0,0,0,0};
-  byte numPorts = 0;
+  uint8_t numPorts = 0;
 
   IPAddress cancelMergeIP;
   bool cancelMerge;
@@ -100,7 +102,6 @@ struct _group_def {
 typedef struct _group_def group_def;
 
 struct _artnet_def {
-  
   IPAddress deviceIP;
   IPAddress subnet;
   IPAddress broadcastIP;
@@ -116,10 +117,10 @@ struct _artnet_def {
   char shortName[ARTNET_SHORT_NAME_LENGTH];
   char longName[ARTNET_LONG_NAME_LENGTH];
 
-  byte oemHi;
-  byte oemLo;
-  byte estaHi;
-  byte estaLo;
+  uint8_t oemHi;
+  uint8_t oemLo;
+  uint8_t estaHi;
+  uint8_t estaLo;
 
   group_def* group[16];
   uint8_t numGroups;
@@ -143,34 +144,42 @@ struct _artnet_def {
 
 typedef struct _artnet_def artnet_device;
 
-
-
-
-class esp8266ArtNetRDM {
+class espArtNetRDM {
   public:
     // init fuctions
-    esp8266ArtNetRDM();
-    ~esp8266ArtNetRDM();
+    espArtNetRDM();
+    ~espArtNetRDM();
     
-    void init(IPAddress, IPAddress, bool, char*, char*, uint16_t, uint16_t, uint8_t*);
-    void init(IPAddress ip, IPAddress sub, bool dhcp, uint16_t oem, uint16_t esta, uint8_t* mac);
-    void init(char* shortName, char* longName, uint16_t oem, uint16_t esta, uint8_t* mac);
-    void init(char* shortName, uint16_t oem, uint16_t esta, uint8_t* mac);
-    void init(uint16_t oem, uint16_t esta, uint8_t* mac);
+    void init(IPAddress, IPAddress, bool, const char*, const char*, uint16_t, uint16_t, uint8_t*);
+    void init(IPAddress ip, IPAddress sub, bool dhcp, uint16_t oem, uint16_t esta, uint8_t* mac) {
+      init(ip, sub, dhcp, "espArtNetNode", "espArtNetNode", oem, esta, mac);
+    };
+    void init(const char* shortName, const char* longName, uint16_t oem, uint16_t esta, uint8_t* mac) {
+      init(INADDR_NONE, INADDR_NONE, false, shortName, longName, oem, esta, mac);
+      setDefaultIP();
+    };
+    void init(const char* shortName, uint16_t oem, uint16_t esta, uint8_t* mac) {
+      init(INADDR_NONE, INADDR_NONE, false, shortName, shortName, oem, esta, mac);
+      setDefaultIP();
+    };
+    void init(uint16_t oem, uint16_t esta, uint8_t* mac) {
+      init(INADDR_NONE, INADDR_NONE, false, "espArtNetNode", "espArtNetNode", oem, esta, mac);
+      setDefaultIP();
+    };
     
     void setFirmwareVersion(uint16_t);
     void setDefaultIP();
 
-    uint8_t addGroup(byte, byte);
+    uint8_t addGroup(uint8_t, uint8_t);
 
-    uint8_t addPort(byte, byte, byte, uint8_t, bool, byte*);
-    uint8_t addPort(byte group, byte port, byte universe, uint8_t type, bool htp) {
+    uint8_t addPort(uint8_t, uint8_t, uint8_t, uint8_t, bool, uint8_t*);
+    uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe, uint8_t type, bool htp) {
       return addPort(group, port, universe, type, htp, 0);
     };
-    uint8_t addPort(byte group, byte port, byte universe, uint8_t type) {
+    uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe, uint8_t type) {
       return addPort(group, port, universe, type, true, 0);
     };
-    uint8_t addPort(byte group, byte port, byte universe) {
+    uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe) {
       return addPort(group, port, universe, DMX_OUT, true, 0);
     };
 
@@ -178,7 +187,7 @@ class esp8266ArtNetRDM {
     void begin();
     void end();
     void pause();
-    byte* getDMX(uint8_t, uint8_t);
+    uint8_t* getDMX(uint8_t, uint8_t);
     uint16_t numChans(uint8_t, uint8_t);
 
     // sACN functions
@@ -205,9 +214,9 @@ class esp8266ArtNetRDM {
     void setPortType(uint8_t, uint8_t, uint8_t);
 
     // get ArtNet uni settings
-    byte getNet(uint8_t);
-    byte getSubNet(uint8_t);
-    byte getUni(uint8_t, uint8_t);
+    uint8_t getNet(uint8_t);
+    uint8_t getSubNet(uint8_t);
+    uint8_t getUni(uint8_t, uint8_t);
 
     // set network settings
     void setIP(IPAddress, IPAddress);
@@ -219,10 +228,10 @@ class esp8266ArtNetRDM {
     // Set Merge & node name
     void setMerge(uint8_t, uint8_t, bool);
     bool getMerge(uint8_t, uint8_t);
-    void setShortName(char*);
-    char* getShortName();
-    void setLongName(char*);
-    char* getLongName();
+    void setShortName(const char*);
+    const char* getShortName();
+    void setLongName(const char*);
+    const char* getLongName();
 
     // RDM functions
     void rdmResponse(rdm_data*, uint8_t, uint8_t);
@@ -233,7 +242,7 @@ class esp8266ArtNetRDM {
     IPAddress getSubnetMask();
     bool getDHCP();
 
-    void setNodeReport(char*, uint16_t);
+    void setNodeReport(const char*, uint16_t);
     void artPollReply();
 
     void sendDMX(uint8_t, uint8_t, IPAddress, uint8_t*, uint16_t);
@@ -266,5 +275,4 @@ class esp8266ArtNetRDM {
     WiFiUDP fUDP;
 };
 
-
-#endif
+#endif  // #ifndef espArtNetRDM_h
