@@ -10,21 +10,21 @@
             "password": "",
             "dhcp": true,
             "ip": "2.0.0.1",
-            "subnet": "255.0.0.0",
+            "subnet": "255.255.255.0",
             "gateway": "2.0.0.1",
-            "broadcast": "2.255.255.255"
+            "broadcast": "2.0.0.255"
         },
         "ap": {
             "ssid": "",
             "password": "ArtNet2023",
             "ip": "2.0.0.1",
-            "subnet": "255.0.0.0",
-            "broadcast": "2.255.255.255",
+            "subnet": "255.255.255.0",
+            "broadcast": "2.0.0.255",
             "standalone": true,
             "delay": 15
         },
         "dmxIn": {
-            "broadcast": "2.255.255.255"
+            "broadcast": "2.0.0.255"
         }
     },
     "portA": {

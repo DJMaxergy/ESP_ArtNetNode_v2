@@ -36,12 +36,19 @@ class pixPatterns {
     uint8_t Size1, Size, Fade, Pos; // size, fading & position for static looks
     uint8_t Intensity;
     bool NewData;
-  
+
+  #if defined(ESP32)
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBus0;
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBus1;
-    
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr);
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBusPtr);
+  #elif defined(ESP8266)
+    NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBus0;
+    NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBus1;
+    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBusPtr);
+    pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBusPtr);
+  #endif
+
     bool Update(void);
     void Increment(void);
     void setSpeed(uint8_t s);

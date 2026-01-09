@@ -15,8 +15,10 @@ If not, see http://www.gnu.org/licenses/
 
 #include "wsFX.h"
 
+#if defined(ESP32)
+
 pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr) {
-  pixBus0 = nullptr;
+  pixBus0 = pixBusPtr;
   pixBus1 = nullptr;
   NewData = 0;
   lastUpdate = 0;
@@ -27,6 +29,18 @@ pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* 
 
 pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBusPtr) {
   pixBus0 = nullptr;
+  pixBus1 = pixBusPtr;
+  NewData = 0;
+  lastUpdate = 0;
+  Intensity = 0;
+  Speed = 0;
+  TotalSteps = 100;
+}
+
+#elif defined(ESP8266)
+
+pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBusPtr) {
+  pixBus0 = pixBusPtr;
   pixBus1 = nullptr;
   NewData = 0;
   lastUpdate = 0;
@@ -34,6 +48,18 @@ pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* 
   Speed = 0;
   TotalSteps = 100;
 }
+
+pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBusPtr) {
+  pixBus0 = nullptr;
+  pixBus1 = pixBusPtr;
+  NewData = 0;
+  lastUpdate = 0;
+  Intensity = 0;
+  Speed = 0;
+  TotalSteps = 100;
+}
+
+#endif
     
 // Update the pattern
 bool pixPatterns::Update(void) {
