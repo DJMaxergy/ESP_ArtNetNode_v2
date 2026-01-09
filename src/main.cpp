@@ -36,6 +36,7 @@
 #define LIM_PIXELS_PER_ARTNET_PORT  170         // Maximum allowed number of pixels per ArtNet port
 #define STATUS_LED_COLOR_SAT        11          // Status LEDs brightness
 #define DNS_PORT                    53          // Port used by DNS server
+#define RDM_IDS_MAX_STORAGE         100         // Maximum amount of elements of RDM IDs storage vectors (only needed on ESP8266)
 
 #ifdef OLED
   #define DISP_LOGO_WIDTH    128
@@ -149,7 +150,7 @@ bool pauseDmxOutput = true;
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixPortB = nullptr;
     pixPatterns* pixFXB = nullptr;
   #endif
-  NeoPixelBus<NeoGrbFeature, NeoEsp32BitBangWs2812xMethod> statusStrip(3, PIN_STATUS_LED);
+  NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt2Ws2812xMethod> statusStrip(3, PIN_STATUS_LED);
 #elif defined(ESP8266)
   NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixPortA = nullptr;
   pixPatterns* pixFXA = nullptr;
@@ -1363,6 +1364,13 @@ void handleDmxInput()
 }
 
 void initArtnet() {
+  #if defined(ESP8266)
+    rdmManIDPortA.reserve(RDM_IDS_MAX_STORAGE);
+    rdmDevIDPortA.reserve(RDM_IDS_MAX_STORAGE);
+    rdmManIDPortB.reserve(RDM_IDS_MAX_STORAGE);
+    rdmDevIDPortB.reserve(RDM_IDS_MAX_STORAGE);
+  #endif
+
   bool useE131 = false;
 
   // Initialize ArtNet:
@@ -1719,20 +1727,12 @@ void setup(void) {
       delay(50);
       if (!digitalRead(PIN_RESET_CONFIG)) {
         resetDefaults = true;
-        Serial.println("[CFG] Reset Config button was pressed");
       }
     }
   #endif
 
   // Start LittleFS file system
-  bool fsOk = LittleFS.begin(false);
-  if (!fsOk) {
-    #ifdef DEBUG
-      Serial.println("[FS] Mount failed, formatting");
-    #endif
-    LittleFS.format();
-    fsOk = LittleFS.begin();
-  }
+  bool fsOk = LittleFS.begin(true);
   if (!fsOk || resetDefaults || !config_load()) {
     #ifdef DEBUG
       Serial.println("[CFG] Using defaults");
@@ -1828,7 +1828,10 @@ void loop(void){
   #endif
 
   // If the device lasts for 6 seconds, clear our reset timers
-  if (config.resetCounter != 0 && millis() > TIMEOUT_CLEAR_COUNTERS) {
+  if ((config.resetCounter != 0) || (config.wdtCounter != 0) && (millis() > TIMEOUT_CLEAR_COUNTERS)) {
+    #ifdef DEBUG
+      Serial.println("Device lasts for 6 seconds, clear our reset timers");
+    #endif
     config.resetCounter = 0;
     config.wdtCounter = 0;
     config_save();
