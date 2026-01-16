@@ -1673,7 +1673,7 @@ void initPorts() {
     dataIn = (byte*) malloc(sizeof(byte) * 512);
     memset(dataIn, 0, 512);
 #elif defined(ESP8266)
-    dmxA.begin(PIN_DMX_DIR_A, artRDM.getDMX(portA[0], portA[1]));
+    dmxA.begin(PIN_DMX_DIR_A, artRDM.getDMX(portA[0], portA[1]), DMX_MIN_CHANS, false);
     dmxA.dmxIn(true);
     dmxA.setInputCallback(cbDmxInputReceive);
     // Init input buffer:
@@ -1712,7 +1712,7 @@ void initPorts() {
       rdm_discover_with_callback(dmxPortB, cbDmxRdmDiscoveredB, NULL);
     }
 #elif defined(ESP8266)
-    dmxB.begin(PIN_DMX_DIR_B, artRDM.getDMX(portB[0], portB[1]));
+    dmxB.begin(PIN_DMX_DIR_B, artRDM.getDMX(portB[0], portB[1]), DMX_MIN_CHANS, false);
     // Setup RDM:
     if (configActive.portB_mode == PORT_TYPE_RDM_OUT && !dmxB.rdmEnabled()) {
       dmxB.rdmEnable(CONF_ESTA_MAN, CONF_ESTA_DEV);
