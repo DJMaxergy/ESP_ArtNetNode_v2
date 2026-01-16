@@ -15,7 +15,11 @@
 
 #define CONF_ART_FIRM_VER     FIRMARE_VER // Firmware given over Artnet (2 bytes)
 #define CONF_ARTNET_OEM       0x0123      // Artnet OEM Code
-#define CONF_ESTA_MAN         0x08DD      // ESTA Manufacturer Code
+#if defined(ESP32)
+#define CONF_ESTA_MAN         0x05E0      // ESTA Manufacturer Code of esp_dmx library
+#elif defined(ESP8266)
+#define CONF_ESTA_MAN         0x08DD      // ESTA Manufacturer Code of DmxRdmLib_esp8266 library
+#endif
 #define CONF_ESTA_DEV         0xEE000000  // RDM Device ID (used with Man Code to make 48bit UID)
 
 enum config_pixel_fx_mode {
@@ -39,7 +43,6 @@ enum config_port_merge {
   PORT_MERGE_LTP = 0,
   PORT_MERGE_HTP = 1
 };
-
 
 struct Config {
   char gen_version[7];

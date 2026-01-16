@@ -13,8 +13,8 @@ You should have received a copy of the GNU General Public License along with thi
 If not, see http://www.gnu.org/licenses/
 */
 
-#ifndef wsFX_h
-#define wsFX_h
+#ifndef _WSFX_H_
+#define _WSFX_H_
 
 #include <Arduino.h>
 #include <NeoPixelBus.h>
@@ -37,17 +37,17 @@ class pixPatterns {
     uint8_t Intensity;
     bool NewData;
 
-  #if defined(ESP32)
+#if defined(ESP32)
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBus0;
     NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBus1;
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt0Ws2812xMethod>* pixBusPtr);
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp32Rmt1Ws2812xMethod>* pixBusPtr);
-  #elif defined(ESP8266)
+#elif defined(ESP8266)
     NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBus0;
     NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBus1;
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart0Ws2812xMethod>* pixBusPtr);
     pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod>* pixBusPtr);
-  #endif
+#endif //defined(ESP8266)
 
     bool Update(void);
     void Increment(void);
@@ -72,4 +72,4 @@ class pixPatterns {
     uint32_t Wheel(byte WheelPos);
 };
 
-#endif
+#endif // _WSFX_H_

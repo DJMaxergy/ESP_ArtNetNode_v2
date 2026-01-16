@@ -4,8 +4,7 @@
 
 extern Config config, configActive;
 
-void config_init(void)
-{
+void config_init(void) {
     char fwVersion[7];
     snprintf(fwVersion, sizeof(fwVersion),"v%1u.%1u.%1u", (uint8_t)((CONF_ART_FIRM_VER & 0x0F00) >> 8), (uint8_t)((CONF_ART_FIRM_VER & 0x00F0) >> 4), (uint8_t)(CONF_ART_FIRM_VER & 0x000F));
     strcpy(config.gen_version, fwVersion);
@@ -58,8 +57,7 @@ void config_init(void)
     config.wdtCounter = 0;
 }
 
-bool config_load(void)
-{
+bool config_load(void) {
     File configFile = LittleFS.open("/config.json", "r");
     if (!configFile) {
         return false;
@@ -137,22 +135,25 @@ bool config_load(void)
     return true;
 }
 
-bool config_save(void)
-{
+bool config_save(void) {
+#if defined(ESP32)
     File configFile = LittleFS.open("/config.json", "w+", true);
+#elif defined(ESP8266)
+    File configFile = LittleFS.open("/config.json", "w+");
+#endif //defined(ESP32)
     if (!configFile) {
-        #ifdef DEBUG
-            Serial.println("[CFG] Could not open or create config.json");
-        #endif
+#ifdef DEBUG
+        Serial.println("[CFG] Could not open or create config.json");
+#endif //ifdef DEBUG
         return false;
     }
 
     size_t size = configFile.size();
     if (size > 1536) {
         configFile.close();
-        #ifdef DEBUG
-            Serial.println("[CFG] Incorrect file size");
-        #endif
+#ifdef DEBUG
+        Serial.println("[CFG] Incorrect file size");
+#endif //ifdef DEBUG
         return false;
     }
 
@@ -170,21 +171,21 @@ bool config_save(void)
     network_sta["ssid"] = config.net_sta_ssid;
     network_sta["password"] = config.net_sta_password;
     network_sta["dhcp"] = config.net_sta_dhcp;
-    network_sta["ip"] = config.net_sta_ip;
-    network_sta["subnet"] = config.net_ap_subnet;
-    network_sta["gateway"] = config.net_sta_gateway;
-    network_sta["broadcast"] = config.net_sta_broadcast;
+    network_sta["ip"] = config.net_sta_ip.toString();
+    network_sta["subnet"] = config.net_ap_subnet.toString();
+    network_sta["gateway"] = config.net_sta_gateway.toString();
+    network_sta["broadcast"] = config.net_sta_broadcast.toString();
 
     JsonObject network_ap = network["ap"].to<JsonObject>();
     network_ap["ssid"] = config.net_ap_ssid;
     network_ap["password"] = config.net_ap_password;
-    network_ap["ip"] = config.net_ap_ip;
-    network_ap["subnet"] = config.net_ap_subnet;
-    network_ap["broadcast"] = config.net_ap_broadcast;
+    network_ap["ip"] = config.net_ap_ip.toString();
+    network_ap["subnet"] = config.net_ap_subnet.toString();
+    network_ap["broadcast"] = config.net_ap_broadcast.toString();
     network_ap["standalone"] = config.net_ap_standalone;
     network_ap["delay"] = config.net_ap_delay;
 
-    network["dmxIn"]["broadcast"] = config.net_dmxIn_broadcast;
+    network["dmxIn"]["broadcast"] = config.net_dmxIn_broadcast.toString();
 
     JsonObject portA = doc["portA"].to<JsonObject>();
     portA["mode"] = config.portA_mode;
@@ -243,9 +244,9 @@ bool config_save(void)
     // Serialize JSON to file
     if (serializeJson(doc, configFile) == 0) {
         configFile.close();
-        #ifdef DEBUG
-            Serial.println("[CFG] Serializing Json to file failed");
-        #endif
+#ifdef DEBUG
+        Serial.println("[CFG] Serializing Json to file failed");
+#endif //ifdef DEBUG
         return false;
     }
 

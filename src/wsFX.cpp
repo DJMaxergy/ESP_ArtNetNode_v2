@@ -59,7 +59,7 @@ pixPatterns::pixPatterns(NeoPixelBus<NeoGrbFeature, NeoEsp8266Uart1Ws2812xMethod
   TotalSteps = 100;
 }
 
-#endif
+#endif //defined(ESP8266)
     
 // Update the pattern
 bool pixPatterns::Update(void) {
@@ -175,8 +175,8 @@ void pixPatterns::StaticUpdate(void) {
 
   // Calculate the values to use mapped to the number of pixels we have
   uint16_t mSize = map(Size, 0, 255, 2, TotalSteps);           // Overall size
-  uint16_t mSize1 = map(Size1, 0, 255, 0, mSize);                               // Colour1 size
-//  uint16_t mFade = map(Fade, 0, 255, 0, (mSize/2));                             // Colour fade size
+  uint16_t mSize1 = map(Size1, 0, 255, 0, mSize);              // Colour1 size
+//  uint16_t mFade = map(Fade, 0, 255, 0, (mSize/2));            // Colour fade size
 
   // Calculate the position offset - the shapes are centered using Pos
   uint16_t midPoint = map(Pos, 0, 255, 0, TotalSteps);
