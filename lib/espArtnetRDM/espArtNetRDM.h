@@ -79,8 +79,8 @@ struct _port_def {
   // RDM Variables
   bool todAvailable;
   uint16_t uidTotal;
-  uint16_t uidMan[50];
-  uint32_t uidSerial[50];
+  uint16_t uidMan[200];
+  uint32_t uidSerial[200];
   unsigned long lastTodCommand;
 };
 
@@ -88,11 +88,11 @@ typedef struct _port_def port_def;
 
 struct _group_def {
   // Port Address
-  uint8_t netSwitch = 0x00;
-  uint8_t subnet = 0x00;
+  uint8_t netSwitch;
+  uint8_t subnet;
   
-  port_def* ports[4] = {0,0,0,0};
-  uint8_t numPorts = 0;
+  port_def* ports[4];
+  uint8_t numPorts;
 
   IPAddress cancelMergeIP;
   bool cancelMerge;
@@ -105,14 +105,14 @@ struct _artnet_def {
   IPAddress deviceIP;
   IPAddress subnet;
   IPAddress broadcastIP;
-  IPAddress rdmIP[5];
-  uint8_t rdmIPcount;
+  IPAddress lastPollIP;
+  bool lastPollWasBroadcast;
 
   IPAddress syncIP;
   unsigned long lastSync;
   
   uint8_t deviceMAC[6];
-  bool dhcp = true;
+  bool dhcp;
 
   char shortName[ARTNET_SHORT_NAME_LENGTH];
   char longName[ARTNET_LONG_NAME_LENGTH];
@@ -122,24 +122,25 @@ struct _artnet_def {
   uint8_t estaHi;
   uint8_t estaLo;
 
-  group_def* group[16];
+  group_def* group[ARTNET_GROUPS_MAX];
   uint8_t numGroups;
   uint32_t lastIPProg;
-  uint32_t nextPollReply;
+  uint8_t lastFlags;
 
   uint16_t firmWareVersion;
   uint32_t nodeReportCounter;
   uint16_t nodeReportCode;
   char nodeReport[ARTNET_NODE_REPORT_LENGTH];
+  bool nodeReportChanged;
   
   // callback functions
-  artDMXCallBack dmxCallBack = 0;
-  artSyncCallBack syncCallBack = 0;
-  artRDMCallBack rdmCallBack = 0;
-  artIPCallBack ipCallBack = 0;
-  artAddressCallBack addressCallBack = 0;
-  artTodRequestCallBack todRequestCallBack = 0;
-  artTodFlushCallBack todFlushCallBack = 0;
+  artDMXCallBack dmxCallBack;
+  artSyncCallBack syncCallBack;
+  artRDMCallBack rdmCallBack;
+  artIPCallBack ipCallBack;
+  artAddressCallBack addressCallBack;
+  artTodRequestCallBack todRequestCallBack;
+  artTodFlushCallBack todFlushCallBack;
 };
 
 typedef struct _artnet_def artnet_device;

@@ -394,7 +394,7 @@ void cbTxtNetStaPwd(Control* sender, int type) {
   if (sender->value.length() < 8) {
     strcpy(config.net_sta_password, "");
   } else {
-    strlcpy(config.net_sta_password, sender->value.c_str(), 64);
+    strlcpy(config.net_sta_password, sender->value.c_str(), sizeof(config.net_sta_password));
   }
 }
 
@@ -433,7 +433,7 @@ void cbTxtNetApPwd(Control* sender, int type) {
   if (sender->value.length() < 8) {
     strcpy(config.net_ap_password, "");
   } else {
-    strlcpy(config.net_ap_password, sender->value.c_str(), 64);
+    strlcpy(config.net_ap_password, sender->value.c_str(), sizeof(config.net_ap_password));
   }
 }
 
@@ -1103,6 +1103,7 @@ void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEn
 
 #if defined(ESP32)
   lastArtDmxDataReceivedMS = millis();
+  static uint8_t dmxPacket[DMX_PACKET_SIZE];
 #endif //defined(ESP32)
 
   if (portA[0] == group) {
@@ -1151,20 +1152,21 @@ void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEn
       }
     // DMX modes:
     } else if (configActive.portA_mode != PORT_TYPE_DMX_IN && port == portA[1]) {
+#ifndef DEBUG
 #if defined(ESP32)
       // DMX buffer (esp_dmx requires start code at index 0)
-      uint8_t dmx_packet[DMX_PACKET_SIZE];
-      dmx_packet[0] = 0x00;
+      memset(dmxPacket, 0x00, DMX_PACKET_SIZE);
       uint16_t len = min(numChans, (uint16_t)512);
-      memcpy(&dmx_packet[1], dmxData, len);
+      memcpy(&dmxPacket[1], dmxData, len);
 
-      dmx_write(dmxPortA, dmx_packet, len + 1);
+      dmx_write(dmxPortA, dmxPacket, len + 1);
       if (dmxOutputAllowed && !syncEnabled) {
         dmx_send_num(dmxPortA, len + 1);
       }
 #elif defined(ESP8266)
       dmxA.chanUpdate(numChans);
 #endif //defined(ESP8266)
+#endif //ifndef DEBUG
       statusLeds.SetPixelColor(ADDR_STATUS_LED_A, blue);
     }
 #ifndef SOLE_OUTPUT
@@ -1218,20 +1220,21 @@ void cbArtDmxReceive(uint8_t group, uint8_t port, uint16_t numChans, bool syncEn
       }
     // DMX modes:
     } else if (configActive.portB_mode != PORT_TYPE_DMX_IN && port == portB[1]) {
+#ifndef DEBUG
 #if defined(ESP32)
       // DMX buffer (esp_dmx requires start code at index 0)
-      uint8_t dmx_packet[DMX_PACKET_SIZE];
-      dmx_packet[0] = 0x00;
+      memset(dmxPacket, 0x00, DMX_PACKET_SIZE);
       uint16_t len = min(numChans, (uint16_t)512);
-      memcpy(&dmx_packet[1], dmxData, len);
+      memcpy(&dmxPacket[1], dmxData, len);
 
-      dmx_write(dmxPortB, dmx_packet, len + 1);
+      dmx_write(dmxPortB, dmxPacket, len + 1);
       if (dmxOutputAllowed && !syncEnabled) {
         dmx_send_num(dmxPortB, len + 1);
       }
 #elif defined(ESP8266)
       dmxB.chanUpdate(numChans);
 #endif //defined(ESP8266)
+#endif //ifndef DEBUG
       statusLeds.SetPixelColor(ADDR_STATUS_LED_B, blue);
     }
 #endif //ifndef SOLE_OUTPUT
@@ -1426,7 +1429,8 @@ void handleDmxInput() {
       if (packet.err == DMX_OK) {
         if (packet.is_rdm) {
           // Received RDM:
-          rdm_data *c;
+          static rdm_data rdm;
+          rdm_data* c = &rdm;
           dmx_read(dmxPortA, c->buffer, packet.size);
           rdm_send_response(dmxPortA); // when device request got received, directly send response
           c->packet.StartCode = packet.sc;
@@ -1435,7 +1439,7 @@ void handleDmxInput() {
 
           statusLeds.SetPixelColor(ADDR_STATUS_LED_A, blue);
 
-        } else if (packet.size > 1) {
+        } else if ((packet.size > 1) && dataIn != NULL) {
           // Received DMX:
           dmx_read(dmxPortA, dataIn, packet.size);
           uint16_t dmxLen = packet.size - 1;  // exclude start code
@@ -1489,6 +1493,8 @@ void initArtnet() {
   artRDM.setFirmwareVersion(CONF_ART_FIRM_VER);
 
   // ----- Port A -----
+  memset(portA, 0xFF, sizeof(portA));
+
   // Add Group:
   portA[0] = artRDM.addGroup(configActive.portA_net, configActive.portA_subnet);
 
@@ -1523,8 +1529,10 @@ void initArtnet() {
     }
   }
 
-  // ----- Port B -----
 #ifndef SOLE_OUTPUT
+  // ----- Port B -----
+  memset(portB, 0xFF, sizeof(portB));
+
   // Add Group:
   portB[0] = artRDM.addGroup(configActive.portB_net, configActive.portB_subnet);
 
@@ -1773,8 +1781,9 @@ void doNodeReport() {
   
   if (nodeError[0] != '\0' && !nodeErrorShowing && nodeErrorTimeout > millis()) {
     nodeErrorShowing = true;
-    strcpy(c, nodeError);
-  } else {
+    strlcpy(c, nodeError, sizeof(nodeError));
+    artRDM.setNodeReport(c, ARTNET_RC_FIRMWARE_FAIL);
+  } else if (nodeErrorShowing == true) {
     nodeErrorShowing = false;
     strcpy(c, "OK: PortA:");
     switch (configActive.portA_mode) {
@@ -1817,9 +1826,8 @@ void doNodeReport() {
         break;
     }
 #endif //ifndef SOLE_OUTPUT
+    artRDM.setNodeReport(c, ARTNET_RC_POWER_OK);
   }
-
-  artRDM.setNodeReport(c, ARTNET_RC_POWER_OK);
 }
 
 void handleStatusLeds() {
@@ -2173,7 +2181,7 @@ void loop(void){
   if (doReboot) {
     char c[ARTNET_NODE_REPORT_LENGTH] = "Device rebooting...";
     artRDM.setNodeReport(c, ARTNET_RC_POWER_OK);
-    artRDM.artPollReply();
+    artRDM.handler(); // call handler again to trigger artPollReply
 
     ESP.restart();
   }

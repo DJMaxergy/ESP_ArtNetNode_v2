@@ -17,8 +17,10 @@
 #define artnet_data_h
 
 #define ARTNET_PORT 6454
+#define ARTNET_GROUPS_MAX 16
 #define ARTNET_BUFFER_MAX 600
 #define ARTNET_REPLY_SIZE 239
+#define ARTNET_POLL_REPLY_MIN_LEN 212
 #define ARTNET_IP_PROG_REPLY_SIZE 34
 #define ARTNET_RDM_REPLY_SIZE 24
 #define ARTNET_TOD_DATA_SIZE 28
@@ -59,31 +61,25 @@
 #define ARTNET_RC_FIRMWARE_FAIL 0x000E
 
 // Artnet Command Codes
-#define ARTNET_AC_NONE 0x00
-#define ARTNET_AC_CANCEL_MERGE 0x01
-#define ARTNET_AC_LED_NORMAL 0x02
-#define ARTNET_AC_LED_MUTE 0x03
-#define ARTNET_AC_LED_LOCATE 0x04
+// Upper nibble = operation
+#define ARTNET_AC_OP_MASK        0xF0
+#define ARTNET_AC_PORT_MASK      0x0F
+// Operations (upper nibble)
+#define ARTNET_AC_NONE           0x00
+#define ARTNET_AC_MERGE_LTP      0x10
+#define ARTNET_AC_MERGE_HTP      0x50
+#define ARTNET_AC_CLEAR_OP       0x90
+#define ARTNET_AC_ARTNET_SEL     0x40
+#define ARTNET_AC_ACN_SEL        0x50   // (shares base with HTP)
+// Special single-byte commands
+#define ARTNET_AC_CANCEL_MERGE   0x01
+#define ARTNET_AC_LED_NORMAL     0x02
+#define ARTNET_AC_LED_MUTE       0x03
+#define ARTNET_AC_LED_LOCATE     0x04
 #define ARTNET_AC_RESET_RX_FLAGS 0x05
-#define ARTNET_AC_MERGE_LTP_0 0x10
-#define ARTNET_AC_MERGE_LTP_1 0x11
-#define ARTNET_AC_MERGE_LTP_2 0x12
-#define ARTNET_AC_MERGE_LTP_3 0x13
-#define ARTNET_AC_MERGE_HTP_0 0x50
-#define ARTNET_AC_MERGE_HTP_1 0x51
-#define ARTNET_AC_MERGE_HTP_2 0x52
-#define ARTNET_AC_MERGE_HTP_3 0x53
-#define ARTNET_AC_CLEAR_OP_0 0x90
-#define ARTNET_AC_CLEAR_OP_1 0x91
-#define ARTNET_AC_CLEAR_OP_2 0x92
-#define ARTNET_AC_CLEAR_OP_3 0x93
-#define ARTNET_AC_ARTNET_SEL_0 0x60
-#define ARTNET_AC_ARTNET_SEL_1 0x61
-#define ARTNET_AC_ARTNET_SEL_2 0x62
-#define ARTNET_AC_ARTNET_SEL_3 0x63
-#define ARTNET_AC_ACN_SEL_0 0x70
-#define ARTNET_AC_ACN_SEL_1 0x71
-#define ARTNET_AC_ACN_SEL_2 0x72
-#define ARTNET_AC_ACN_SEL_3 0x73
+
+// Artnet Flag bits
+#define ARTNET_FLAG_SEND_ON_CHANGE   0x02  // bit 1
+#define ARTNET_FLAG_UNICAST_REPLY    0x01  // bit 0
 
 #endif

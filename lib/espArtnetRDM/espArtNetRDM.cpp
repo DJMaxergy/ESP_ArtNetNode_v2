@@ -19,6 +19,26 @@ static void artClearDMXBuffer(uint8_t* buf) {
   memset(buf, 0, DMX_BUFFER_SIZE);
 }
 
+static bool isBroadcastIP(const IPAddress& ip) {
+  // 1) Global broadcast
+  if (ip == IPAddress(255, 255, 255, 255))
+    return true;
+
+  // 2) Art-Net directed broadcast: 2.x.x.255
+  if (ip[0] == 2 && ip[3] == 255)
+    return true;
+
+  // 3) Subnet-directed broadcast
+  IPAddress localIP = WiFi.localIP();
+  IPAddress subnet  = WiFi.subnetMask();
+
+  for (int i = 0; i < 4; i++) {
+    if ((localIP[i] | ~subnet[i]) != ip[i])
+      return false;
+  }
+  return true;
+}
+
 espArtNetRDM::espArtNetRDM() {
 }
 
@@ -34,7 +54,7 @@ void espArtNetRDM::end() {
   eUDP.stopAll();
   #endif
 
-  #if defined(ESP32)
+#if defined(ESP32)
   for (uint8_t g = 0; g < _art->numGroups; g++) {
     for (uint8_t p = 0; p < 4; p++) {
       if (_art->group[g]->ports[p] == 0)
@@ -49,7 +69,7 @@ void espArtNetRDM::end() {
     free(_art->group[g]);
   }
   free(_art);
-  #elif defined(ESP8266)
+#elif defined(ESP8266)
   for (uint8_t g = 0; g < _art->numGroups; g++) {
     for (uint8_t p = 0; p < 4; p++) {
       if (_art->group[g]->ports[p] == 0)
@@ -64,26 +84,21 @@ void espArtNetRDM::end() {
     os_free(_art->group[g]);
   }
   os_free(_art);
-  #endif
+#endif
 
   _art = 0;
 }
 
 void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, const char* shortname, const char* longname, uint16_t oem, uint16_t esta, uint8_t* mac) {
-  #if defined(ESP32)
   if (_art != 0)
-    free(_art);
-  #elif defined(ESP8266)
-  if (_art != 0)
-    os_free(_art);
-  #endif
+    end();
 
   // Allocate memory for our settings
-  #if defined(ESP32)
+#if defined(ESP32)
   _art = (artnet_device*) malloc(sizeof(artnet_device));
-  #elif defined(ESP8266)
+#elif defined(ESP8266)
   _art = (artnet_device*) os_malloc(sizeof(artnet_device));
-  #endif
+#endif
 
   delay(1);
   
@@ -92,9 +107,16 @@ void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, const char* s
   _art->numGroups = 0;
   _art->nodeReportCounter = 0;
   _art->nodeReportCode = ARTNET_RC_POWER_OK;
+  _art->nodeReportChanged = false;
+  _art->lastPollWasBroadcast = false;
+  _art->lastIPProg = 0;
+  _art->lastFlags = 0x00;
   _art->deviceIP = ip;
   _art->subnet = ip;
-  _art->broadcastIP = IPAddress((uint32_t)ip | ~((uint32_t)subnet));
+  _art->broadcastIP[0] = _art->deviceIP[0] | (~_art->subnet[0]);
+  _art->broadcastIP[1] = _art->deviceIP[1] | (~_art->subnet[1]);
+  _art->broadcastIP[2] = _art->deviceIP[2] | (~_art->subnet[2]);
+  _art->broadcastIP[3] = _art->deviceIP[3] | (~_art->subnet[3]);
   _art->dhcp = dhcp;
   _art->oemLo = (uint8_t)oem;
   _art->oemHi = (uint8_t)(oem >> 8);
@@ -102,10 +124,17 @@ void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, const char* s
   _art->estaHi = (uint8_t)(esta >> 8);
   _art->syncIP = INADDR_NONE;
   _art->lastSync = 0;
-  _art->nextPollReply = 0;
   memcpy(_art->shortName, shortname, ARTNET_SHORT_NAME_LENGTH);
   memcpy(_art->longName, longname, ARTNET_LONG_NAME_LENGTH);
   memcpy(_art->deviceMAC, mac, 6);
+
+  _art->dmxCallBack = 0;
+  _art->syncCallBack = 0;
+  _art->rdmCallBack = 0;
+  _art->ipCallBack = 0;
+  _art->addressCallBack = 0;
+  _art->todRequestCallBack = 0;
+  _art->todFlushCallBack = 0;
 }
 
 void espArtNetRDM::setFirmwareVersion(uint16_t fw) {
@@ -120,8 +149,8 @@ void espArtNetRDM::setDefaultIP() {
     return;
 
   _art->dhcp = false;
-  _art->subnet = IPAddress(255, 0, 0, 0);
-  _art->broadcastIP = IPAddress(2, 255, 255, 255);
+  _art->subnet = IPAddress(255, 255, 255, 0);
+  _art->broadcastIP = IPAddress(2, 0, 0, 255);
 
   uint8_t b = _art->deviceMAC[3] + _art->oemLo + _art->oemHi;
   uint8_t c = _art->deviceMAC[4];
@@ -134,18 +163,21 @@ uint8_t espArtNetRDM::addGroup(uint8_t net, uint8_t subnet) {
   if (_art == 0)
     return 255;
 
+  if (_art->numGroups >= ARTNET_GROUPS_MAX)
+    return 255;
+
   uint8_t g = _art->numGroups;
   
-  #if defined(ESP32)
+#if defined(ESP32)
   _art->group[g] = (group_def*) malloc(sizeof(group_def));
-  #elif defined(ESP8266)
+#elif defined(ESP8266)
   _art->group[g] = (group_def*) os_malloc(sizeof(group_def));
-  #endif
+#endif
   _art->group[g]->netSwitch = net & 0b01111111;
   _art->group[g]->subnet = subnet;
   _art->group[g]->numPorts = 0;
   _art->group[g]->cancelMergeIP = INADDR_NONE;
-  _art->group[g]->cancelMerge = 0;
+  _art->group[g]->cancelMerge = false;
   _art->group[g]->cancelMergeTime = 0;
 
   for (int x = 0; x < 4; x++)
@@ -161,7 +193,10 @@ uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t,
     return 255;
 
   // Check for a valid universe, group and port number
-  if (universe > 15 || p >= 4 || g > _art->numGroups)
+  if (universe > 15 || p >= 4 || g >= _art->numGroups)
+    return 255;
+
+  if (t > DMX_IN)
     return 255;
   
   group_def* group = _art->group[g];
@@ -171,22 +206,22 @@ uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t,
     return p;
 
   // Allocate space for our port
-  #if defined(ESP32)
+#if defined(ESP32)
   group->ports[p] = (port_def*) malloc(sizeof(port_def));
-  #elif defined(ESP8266)
+#elif defined(ESP8266)
   group->ports[p] = (port_def*) os_malloc(sizeof(port_def));
-  #endif
+#endif
   
   delay(1);
   port_def* port = group->ports[p];
   
   // DMX output buffer allocation
   if (buf == 0) {
-    #if defined(ESP32)
+#if defined(ESP32)
     port->dmxBuffer = (uint8_t*) malloc(DMX_BUFFER_SIZE);
-    #elif defined(ESP8266)
+#elif defined(ESP8266)
     port->dmxBuffer = (uint8_t*) os_malloc(DMX_BUFFER_SIZE);
-    #endif
+#endif
     port->ownBuffer = true;
   } else {
     port->dmxBuffer = buf;
@@ -230,21 +265,21 @@ bool espArtNetRDM::closePort(uint8_t g, uint8_t p) {
     return true;
 
   // Delete buffers
-  #if defined(ESP32)
+#if defined(ESP32)
   if (group->ports[p]->ownBuffer)
     free(group->ports[p]->dmxBuffer);
   if (group->ports[p]->ipBuffer != 0)
     free(group->ports[p]->ipBuffer);
 
   free(group->ports[p]);
-  #elif defined(ESP8266)
+#elif defined(ESP8266)
   if (group->ports[p]->ownBuffer)
     os_free(group->ports[p]->dmxBuffer);
   if (group->ports[p]->ipBuffer != 0)
     os_free(group->ports[p]->ipBuffer);
   
   os_free(group->ports[p]);
-  #endif
+#endif
 
   // Mark port as empty
   group->ports[p] = 0;
@@ -334,7 +369,7 @@ void espArtNetRDM::handler() {
 
   if (packetSize > 0) {
 
-    unsigned char _artBuffer[ARTNET_BUFFER_MAX];
+    static unsigned char _artBuffer[ARTNET_BUFFER_MAX];
 
     // Read data into buffer
     eUDP.read(_artBuffer, packetSize);
@@ -345,20 +380,28 @@ void espArtNetRDM::handler() {
     switch (opCode) {
 
       case ARTNET_ARTPOLL:
-	      // This is always called at the end of this function
-        //_artPoll();
+        if (packetSize > 12) {
+          _art->lastPollIP = eUDP.remoteIP();
+          _art->lastPollWasBroadcast = isBroadcastIP(_art->lastPollIP);
+
+          _art->lastFlags = _artBuffer[12];
+          _artPoll();
+        }
         break;
 
       case ARTNET_ARTDMX:
-        _artDMX(_artBuffer);
+        if (packetSize > ARTNET_ADDRESS_OFFSET)
+          _artDMX(_artBuffer);
         break;
 
       case ARTNET_IP_PROG:
-        _artIPProg(_artBuffer);
+        if (packetSize > 23)
+          _artIPProg(_artBuffer);
         break;
   
       case ARTNET_ADDRESS:
-        _artAddress(_artBuffer);
+        if (packetSize > 106)
+          _artAddress(_artBuffer);
         break;
   
       case ARTNET_SYNC:
@@ -370,15 +413,18 @@ void espArtNetRDM::handler() {
         break;
   
       case ARTNET_TOD_REQUEST:
-        _artTODRequest(_artBuffer);
+        if (packetSize > 23)
+          _artTODRequest(_artBuffer);
         break;
   
       case ARTNET_TOD_CONTROL:
-        _artTODControl(_artBuffer);
+        if (packetSize > 23)
+          _artTODControl(_artBuffer);
         break;
   
       case ARTNET_RDM:
-        _artRDM(_artBuffer, packetSize);
+        if (packetSize > 25)
+          _artRDM(_artBuffer, packetSize);
         break;
   
       case ARTNET_RDM_SUB:
@@ -386,7 +432,6 @@ void espArtNetRDM::handler() {
         break;
     }
   }
-
 
   // e131 packet
   packetSize = fUDP.parsePacket();
@@ -401,17 +446,19 @@ void espArtNetRDM::handler() {
     _e131Receive(&_e131Buffer);
   }
 
-  // Send artPollReply - the function will limit the number sent
-  _artPoll();
+  // Send artPollReply if node condition/report changed
+  bool sendOnChange = _art->lastFlags & ARTNET_FLAG_SEND_ON_CHANGE;
+  if (_art->nodeReportChanged && sendOnChange) {
+    _artPoll();
+    _art->nodeReportChanged = false;
+  }
 
 }
 
 int espArtNetRDM::_artOpCode(unsigned char *_artBuffer) {
-  String test = String((char*)_artBuffer);
-  if ( test.equals("Art-Net") ) {
-    if ( _artBuffer[11] >= 14 ) {                  //protocol version [10] hi uint8_t [11] lo uint8_t
-      return _artBuffer[9] * 256 + _artBuffer[8];  //opcode lo uint8_t first
-    }
+  if (memcmp(_artBuffer, "Art-Net\0", 8) == 0) {
+    if (_artBuffer[11] >= 14)                         //protocol version [10] hi byte [11] lo byte
+        return (_artBuffer[9] << 8) | _artBuffer[8];  //opcode lo byte first
   }
   
   return 0;
@@ -419,12 +466,7 @@ int espArtNetRDM::_artOpCode(unsigned char *_artBuffer) {
 
 
 void espArtNetRDM::_artPoll() {
-  // limit the number of artPollReply messages
-  if (_art->nextPollReply > millis())
-    return;
-  _art->nextPollReply = millis() + 2000;
-  
-  unsigned char _artReplyBuffer[ARTNET_REPLY_SIZE];
+  static uint8_t _artReplyBuffer[ARTNET_REPLY_SIZE];
   _artReplyBuffer[0] = 'A';
   _artReplyBuffer[1] = 'r';
   _artReplyBuffer[2] = 't';
@@ -432,7 +474,7 @@ void espArtNetRDM::_artPoll() {
   _artReplyBuffer[4] = 'N';
   _artReplyBuffer[5] = 'e';
   _artReplyBuffer[6] = 't';
-  _artReplyBuffer[7] = 0;
+  _artReplyBuffer[7] = 0x00;
   _artReplyBuffer[8] = (uint8_t)(ARTNET_ARTPOLL_REPLY);      	// op code lo-hi
   _artReplyBuffer[9] = (uint8_t)(ARTNET_ARTPOLL_REPLY >> 8); 	// 0x2100 = artPollReply
   _artReplyBuffer[10] = _art->deviceIP[0];        	          // ip address
@@ -446,27 +488,34 @@ void espArtNetRDM::_artPoll() {
   _artReplyBuffer[20] = _art->oemHi;                          // oem hi-lo
   _artReplyBuffer[21] = _art->oemLo;
   _artReplyBuffer[22] = 0;              		                  // ubea
-	
-  _artReplyBuffer[23] = 0b11110010;			                      // Device is RDM Capable
-  _artReplyBuffer[24] = _art->estaLo;           	            // ESTA Code (2 bytes)
+
+  // -------- Status1 (byte 23) --------
+  uint8_t status1 = 0x00;
+  status1 |= 0x02;     // RDM capable
+  status1 |= 0xC0;     // Indicator state: Normal Mode
+  status1 |= 0x20;     // Port-Address programming authority - programmed by web UI
+  _artReplyBuffer[23] = status1;
+
+  // -------- ESTA manufacturer code (bytes 24–25) --------
+  _artReplyBuffer[24] = _art->estaLo;
   _artReplyBuffer[25] = _art->estaHi;
 
-                                        //short name
+  //short name
   for (int x = 0; x < ARTNET_SHORT_NAME_LENGTH; x++)
     _artReplyBuffer[x + 26] = _art->shortName[x];
     
-                                        //long name
+  //long name
   for (int x = 0; x < ARTNET_LONG_NAME_LENGTH; x++)
     _artReplyBuffer[x + 44] = _art->longName[x];
 
-                                        // node report - send blank
+  // node report - send blank
   for (int x = 0; x < ARTNET_NODE_REPORT_LENGTH; x++) {
     _artReplyBuffer[x + 108] = 0;
   }
 
   // Set reply code
   char tmp[7];
-  sprintf (tmp, "%04x", _art->nodeReportCode);
+  snprintf(tmp, sizeof(tmp), "%04x", _art->nodeReportCode);
   _artReplyBuffer[108] = '#';
   _artReplyBuffer[109] = tmp[0];
   _artReplyBuffer[110] = tmp[1];
@@ -475,7 +524,7 @@ void espArtNetRDM::_artPoll() {
   _artReplyBuffer[113] = '[';
 
   // Max 6 digits for counter - could be longer if wanted
-  sprintf (tmp, "%d", _art->nodeReportCounter++);
+  snprintf(tmp, sizeof(tmp), "%u", _art->nodeReportCounter++);
   if (_art->nodeReportCounter > 999999)
     _art->nodeReportCounter = 0;
 
@@ -510,8 +559,17 @@ void espArtNetRDM::_artPoll() {
   _artReplyBuffer[208] = _art->deviceIP[1];
   _artReplyBuffer[209] = _art->deviceIP[2];
   _artReplyBuffer[210] = _art->deviceIP[3];
-  
-  _artReplyBuffer[212] = (_art->dhcp) ? 31 : 29;  // status 2
+
+  // -------- Status2 (byte 212) --------
+  uint8_t status2 = 0x00;
+  // status2 |= 0x80;     // RDM support ArtAddress
+  status2 |= 0x10;     // sACN capable
+  status2 |= 0x08;     // 15-bit addressing, Art-Net 3+
+  status2 |= 0x04;     // DHCP capable
+  if (_art->dhcp) status2 |= 0x02; 
+  status2 |= 0x01;     // Web config supported
+
+  _artReplyBuffer[212] = status2;
 
   for (int x = 213; x < ARTNET_REPLY_SIZE; x++)
     _artReplyBuffer[x] = 0;             // Reserved for future - transmit 0
@@ -526,7 +584,7 @@ void espArtNetRDM::_artPoll() {
 
     _artReplyBuffer[18] = group->netSwitch;       // net
     _artReplyBuffer[19] = group->subnet;          // subnet
-    _artReplyBuffer[173] = group->numPorts;       // number of ports (Lo uint8_t)
+    _artReplyBuffer[173] = group->numPorts;       // number of ports (Lo byte)
 
     _artReplyBuffer[211] = groupNum + 1;    	    // Bind Index
 
@@ -544,39 +602,64 @@ void espArtNetRDM::_artPoll() {
       if (group->ports[x] == 0)
         continue;
 
+      // Set port type
+      uint8_t portType = 0;
+      if (group->ports[x]->portType == DMX_OUT || group->ports[x]->portType == RDM_OUT)
+        portType |= 0x80; // output capable
+      if (group->ports[x]->portType == DMX_IN)
+        portType |= 0x40; // input capable
+
+      _artReplyBuffer[174 + x] = portType;
+
       // DMX or RDM out port
       if (group->ports[x]->portType != DMX_IN) {
-
         // Get values for Good Output field
         uint8_t go = 0;
         if (group->ports[x]->dmxChans != 0)
-          go |= 128;						// data being transmitted
+          go |= 0x80;						// data being transmitted
         if (group->ports[x]->merging)
-          go |= 8;						// artnet data being merged
-        if (! group->ports[x]->mergeHTP)
-          go |= 2;						// Merge mode LTP
+          go |= 0x08;						// artnet data being merged
+        if (group->ports[x]->merging && !group->ports[x]->mergeHTP)
+          go |= 0x02;						// Merge mode LTP
         if (group->ports[x]->e131)
-          go |= 1;						// sACN
-        
-        _artReplyBuffer[174 + x] |= 128;			//Port Type (128 = DMX out)
-        _artReplyBuffer[182 + x] = go;				//Good output (128 = data being transmitted)
+          go |= 0x01;						// sACN
+
+        _artReplyBuffer[182 + x] = go;				                  // Good output
         _artReplyBuffer[190 + x] = group->ports[x]->portUni;  	// swOut - port address
 
       // DMX In port info
       } else if (group->ports[x]->portType == DMX_IN) {
-        _artReplyBuffer[174 + x] |= 64;				// Port type (64 = DMX in)
-
         if (group->ports[x]->dmxChans != 0)
-          _artReplyBuffer[178 + x] = 128;       		// Good input (128 = data being received)
+          _artReplyBuffer[178 + x] = 0x80;       		            // Good input received
 
-        _artReplyBuffer[186] = group->ports[0]->portUni;  	// swIn
+        _artReplyBuffer[186 + x] = group->ports[x]->portUni;  	// swIn
+      }
+    }
 
+    // Prepare packet
+    uint16_t replyLen = ARTNET_POLL_REPLY_MIN_LEN;
+    // Trim trailing zero bytes (optional but recommended)
+    for (int i = ARTNET_REPLY_SIZE - 1; i >= ARTNET_POLL_REPLY_MIN_LEN; i--) {
+      if (_artReplyBuffer[i] != 0) {
+        replyLen = i + 1;
+        break;
       }
     }
 
     // Send packet
-    eUDP.beginPacket(_art->broadcastIP, ARTNET_PORT);
-    eUDP.write((const uint8_t *)_artReplyBuffer, ARTNET_REPLY_SIZE);
+    IPAddress destIP;
+
+    bool unicastReply = _art->lastFlags & ARTNET_FLAG_UNICAST_REPLY;
+    if (unicastReply && !_art->lastPollWasBroadcast)
+      destIP = _art->lastPollIP;
+    else
+      destIP = _art->broadcastIP;
+
+    if (destIP == WiFi.localIP())
+      return;
+
+    eUDP.beginPacket(destIP, ARTNET_PORT);
+    eUDP.write((const uint8_t *)_artReplyBuffer, replyLen);
     eUDP.endPacket();
 
     delay(0);
@@ -592,7 +675,7 @@ void espArtNetRDM::artPollReply() {
 }
 
 void espArtNetRDM::_artDMX(unsigned char *_artBuffer) {
-  group_def* group = 0;
+  group_def* group = nullptr;
 
   IPAddress rIP = eUDP.remoteIP();
 
@@ -602,144 +685,160 @@ void espArtNetRDM::_artDMX(unsigned char *_artBuffer) {
 
   // Number of channels hi uint8_t first
   uint16_t numberOfChannels = _artBuffer[17] + (_artBuffer[16] << 8);
+  if (numberOfChannels == 0)
+    return;
+  if (numberOfChannels > 512)
+    numberOfChannels = 512;
+
   uint16_t startChannel = 0;
 
   // Loop through all groups
-  for (int x = 0; x < _art->numGroups; x++) {
-    if (net == _art->group[x]->netSwitch && sub == _art->group[x]->subnet) {
-      group = _art->group[x];
+  for (uint8_t g = 0; g < _art->numGroups; g++) {
+    group = _art->group[g];
 
-      // Loop through each port
-      for (int y = 0; y < 4; y++) {
-        if (group->ports[y] == 0 || group->ports[y]->portType == DMX_IN)
-          continue;
-        
-        // If this port has the correct Net, Sub & Uni then save DMX to buffer
-        if (uni == group->ports[y]->portUni)
-          _saveDMX(&_artBuffer[ARTNET_ADDRESS_OFFSET], numberOfChannels, x, y, rIP, startChannel);
-      }
+    if (group->netSwitch != net || group->subnet != sub)
+      continue;
+
+    // Loop through each port
+    for (uint8_t p = 0; p < 4; p++) {
+      port_def* port = group->ports[p];
+      if (!port || port->portType == DMX_IN)
+        continue;
+
+      if (port->portUni != uni)
+        continue;
+
+      // If this port has the correct Net, Sub & Uni then save DMX to buffer
+      _saveDMX(&_artBuffer[ARTNET_ADDRESS_OFFSET],
+               numberOfChannels,
+               g,
+               p,
+               rIP,
+               startChannel);
     }
   }
 }
 
-void espArtNetRDM::_saveDMX(unsigned char *dmxData, uint16_t numberOfChannels, uint8_t groupNum, uint8_t portNum, IPAddress rIP, uint16_t startChannel) {
+void espArtNetRDM::_saveDMX(unsigned char *dmxData, uint16_t length, uint8_t groupNum, uint8_t portNum, IPAddress srcIP, uint16_t startChannel) {
   group_def* group = _art->group[groupNum];
-  port_def* port = group->ports[portNum];
+  port_def* port   = group->ports[portNum];
 
-  uint8_t senderID = 255;  // Will be set to 0 or 1 if valid later
+  const uint32_t now = millis();
+  const uint32_t TIMEOUT = 10000;
 
-  unsigned long timeNow = millis();
-
-  // We can't do the next calculations until after 10 seconds
-  if (timeNow > 10000) {
-    unsigned long timeExp = timeNow - 10000;
-
-    // Clear IPs that we haven't heard from in over 10 seconds
-    if (port->lastPacketTime[0] < timeExp)
-      port->senderIP[0] = INADDR_NONE;
-    else if (port->lastPacketTime[1] < timeExp)
-      port->senderIP[1] = INADDR_NONE;
+  // ---------- Sender slot cleanup ----------
+  for (uint8_t i = 0; i < 2; i++) {
+    if (port->senderIP[i] != INADDR_NONE &&
+        (now - port->lastPacketTime[i]) > TIMEOUT)
+    {
+      port->senderIP[i] = INADDR_NONE;
+      port->lastPacketTime[i] = 0;
+    }
   }
 
-  // Get a sender ID
-  if (port->senderIP[0] == rIP) {
-    senderID = 0;
-    port->lastPacketTime[0] = timeNow;
-  } else if (port->senderIP[1] == rIP || port->senderIP[1] == INADDR_NONE) {
-    senderID = 1;
-    port->senderIP[1] = rIP;
-    port->lastPacketTime[1] = timeNow;
-  } else if (port->senderIP[0] == INADDR_NONE) {
-    senderID = 0;
-    port->senderIP[0] = rIP;
-    port->lastPacketTime[0] = timeNow;
+  // ---------- Assign sender slot ----------
+  int8_t sender = -1;
+
+  for (uint8_t i = 0; i < 2; i++) {
+    if (port->senderIP[i] == srcIP) {
+      sender = i;
+      break;
+    }
   }
 
-  // This is a third IP so drop the packet (Artnet v4 only allows for merging 2 DMX streams)
-  if (senderID == 255)
+  if (sender == -1) {
+    for (uint8_t i = 0; i < 2; i++) {
+      if (port->senderIP[i] == INADDR_NONE) {
+        sender = i;
+        port->senderIP[i] = srcIP;
+        break;
+      }
+    }
+  }
+
+  // Third sender → DROP
+  if (sender == -1)
     return;
-  
-  // Check if we're merging (the other IP will be non zero)
-  if (port->senderIP[(senderID ^ 0x01)] == INADDR_NONE)
-    port->merging = false;
-  else
-    port->merging = true;
-  
 
-  // Cancel merge is old so cancel the cancel merge
-  if ((group->cancelMergeTime + ARTNET_CANCEL_MERGE_TIMEOUT) < millis()) {
+  port->lastPacketTime[sender] = now;
+
+  uint8_t other = sender ^ 1;
+  port->merging = (port->senderIP[other] != INADDR_NONE);
+
+  // ---------- Cancel Merge handling ----------
+  if (group->cancelMerge &&
+      group->cancelMergeIP == srcIP &&
+      (now - group->cancelMergeTime) < ARTNET_CANCEL_MERGE_TIMEOUT)
+  {
+    port->mergeHTP = false;
+    port->merging  = false;
+  }
+  else if (group->cancelMerge &&
+            (now - group->cancelMergeTime) < ARTNET_CANCEL_MERGE_TIMEOUT)
+  {
+    // Other sender during cancel-merge → DROP
+    return;
+  }
+  else {
     group->cancelMerge = false;
     group->cancelMergeIP = INADDR_NONE;
-  
-  } else {
-    // This is the correct IP, enable cancel merge
-    if (group->cancelMergeIP == port->senderIP[senderID]) {
-      group->cancelMerge = 1;
-      group->cancelMergeTime = millis();
-      port->mergeHTP = false;
-      port->merging = false;
-      
-    // If the merge is current & IP isn't correct, ignore this packet
-    } else if (group->cancelMerge)
-      return;
   }
-  
-  // Store number of channels
-  if (numberOfChannels > port->dmxChans)
-    port->dmxChans = numberOfChannels;
 
-  // Check if we should merge (HTP) or not merge (LTP)
+  // ---------- Channel bounds ----------
+  if (length > DMX_BUFFER_SIZE)
+    length = DMX_BUFFER_SIZE;
+
+  if (length > port->dmxChans)
+    port->dmxChans = length;
+
+  // ---------- HTP merge ----------
   if (port->merging && port->mergeHTP) {
-    // Check if there is a buffer.  If not, allocate and clear it
-    if (port->ipBuffer == 0) {
-      #if defined(ESP32)
-      port->ipBuffer = (uint8_t*) malloc(2 * DMX_BUFFER_SIZE);
-      #elif defined(ESP8266)
-      port->ipBuffer = (uint8_t*) os_malloc(2 * DMX_BUFFER_SIZE);
-      #endif
-      delay(0);
+
+    if (!port->ipBuffer) {
+#if defined(ESP32)
+      port->ipBuffer = (uint8_t*)malloc(2 * DMX_BUFFER_SIZE);
+#else
+      port->ipBuffer = (uint8_t*)os_malloc(2 * DMX_BUFFER_SIZE);
+#endif
       artClearDMXBuffer(port->ipBuffer);
-      artClearDMXBuffer(&port->ipBuffer[DMX_BUFFER_SIZE]);
-      delay(0);
+      artClearDMXBuffer(port->ipBuffer + DMX_BUFFER_SIZE);
     }
 
-    // Put data into our buffer
-    memcpy(&port->ipBuffer[senderID * DMX_BUFFER_SIZE + startChannel], dmxData, numberOfChannels);
-    
-    // Get the number of channels to compare
-    numberOfChannels = (port->dmxChans > numberOfChannels) ? port->dmxChans : numberOfChannels;
-    
-    // Compare data and put in the output buffer
-    for (uint16_t x = 0; x < numberOfChannels; x++)
-      port->dmxBuffer[x] = (port->ipBuffer[x] > port->ipBuffer[x + DMX_BUFFER_SIZE]) ? port->ipBuffer[x] : port->ipBuffer[x + DMX_BUFFER_SIZE];
+    memcpy(
+        port->ipBuffer + sender * DMX_BUFFER_SIZE + startChannel,
+        dmxData,
+        length
+    );
 
-    // Call our dmx callback in the main script (Sync doesn't get used when merging)
-    _art->dmxCallBack(groupNum, portNum, numberOfChannels, false);
-    
-  } else {
-    // Copy data directly into output buffer
-    memcpy(&port->dmxBuffer[startChannel], dmxData, numberOfChannels);
-    
-/*
-    // Delete merge buffer if it exists
-    if (port->ipBuffer != 0) {
-      #if defined(ESP32)
-      free(port->ipBuffer);
-      #elif defined(ESP8266)
-      os_free(port->ipBuffer);
-      #endif
-      port->ipBuffer = 0;
+    for (uint16_t i = 0; i < port->dmxChans; i++) {
+      port->dmxBuffer[i] =
+          max(port->ipBuffer[i],
+              port->ipBuffer[i + DMX_BUFFER_SIZE]);
     }
-*/
 
-    // Check if Sync is enabled and call dmx callback in the main script
-    if (_art->lastSync == 0 || (_art->lastSync + 4000) < timeNow || _art->syncIP != rIP)
-      _art->dmxCallBack(groupNum, portNum, numberOfChannels, false);
-    else
-      _art->dmxCallBack(groupNum, portNum, numberOfChannels, true);
-
-    //_art->syncIP = rIP;
+    _art->dmxCallBack(groupNum, portNum, port->dmxChans, false);
+    return;
   }
+
+  // ---------- LTP / single sender ----------
+  memcpy(port->dmxBuffer + startChannel, dmxData, length);
+
+  // Free merge buffer if not used
+  if (port->ipBuffer) {
+#if defined(ESP32)
+    free(port->ipBuffer);
+#else
+    os_free(port->ipBuffer);
+#endif
+    port->ipBuffer = nullptr;
+  }
+
+  bool sync = (_art->lastSync &&
+              (now - _art->lastSync) < 4000 &&
+              _art->syncIP == srcIP);
+
+  _art->syncIP = srcIP;
+  _art->dmxCallBack(groupNum, portNum, port->dmxChans, sync);
 }
 
 uint8_t* espArtNetRDM::getDMX(uint8_t g, uint8_t p) {
@@ -808,7 +907,7 @@ void espArtNetRDM::_artIPProg(unsigned char *_artBuffer) {
 
 void espArtNetRDM::_artIPProgReply() {
   // Initialise our reply
-  char ipProgReply[ARTNET_IP_PROG_REPLY_SIZE];
+  static char ipProgReply[ARTNET_IP_PROG_REPLY_SIZE];
   
   ipProgReply[0] = 'A';
   ipProgReply[1] = 'r';
@@ -854,10 +953,19 @@ void espArtNetRDM::_artIPProgReply() {
 void espArtNetRDM::_artAddress(unsigned char *_artBuffer) {
   // _artBuffer[13]    bindIndex
   uint8_t g = _artBuffer[13] - 1;
+  if (g >= _art->numGroups)
+    return;
+
+  uint8_t cmd = _artBuffer[106];
+  uint8_t op = cmd & ARTNET_AC_OP_MASK;
+  uint8_t p = cmd & ARTNET_AC_PORT_MASK;
+
+  group_def* group = _art->group[g];
+  port_def* port = nullptr;
 
   // Set net switch
   if ((_artBuffer[12] & 0x80) == 0x80)
-    _art->group[g]->netSwitch = _artBuffer[12] & 0x7F;
+    group->netSwitch = _artBuffer[12] & 0x7F;
   
   // Set short name
   if (_artBuffer[14] != '\0') {
@@ -873,131 +981,106 @@ void espArtNetRDM::_artAddress(unsigned char *_artBuffer) {
 
   // Set Port Address
   for (int x = 0; x < 4; x++) {
-    if ((_artBuffer[100 + x] & 0xF0) == 0x80 && _art->group[g]->ports[x] != 0)
-      _art->group[g]->ports[x]->portUni = _artBuffer[100 + x] & 0x0F;
+    if ((_artBuffer[100 + x] & 0xF0) == 0x80 && group->ports[x] != 0)
+      group->ports[x]->portUni = _artBuffer[100 + x] & 0x0F;
   }
 
   // Set subnet
   if ((_artBuffer[104] & 0xF0) == 0x80) {
-    _art->group[g]->subnet = _artBuffer[104] & 0x0F;
+    group->subnet = _artBuffer[104] & 0x0F;
   }
 
-  // Get port number
-  uint8_t p = _artBuffer[106] & 0x0F;
+  // ---------- Global commands ----------
+  if (cmd == ARTNET_AC_CANCEL_MERGE) {
+    group->cancelMerge      = true;
+    group->cancelMergeIP    = eUDP.remoteIP();
+    group->cancelMergeTime  = millis();
 
-  // Command
-  switch (_artBuffer[106]) {
-    case ARTNET_AC_CANCEL_MERGE:
-      _art->group[g]->cancelMergeTime = millis();
-      _art->group[g]->cancelMergeIP = eUDP.remoteIP();
+    for (uint8_t i = 0; i < 4; i++) {
+      port_def* cancelMergePort = group->ports[i];
+      if (!cancelMergePort) continue;
 
-      /*
-      for (int x = 0; x < 4; x++) {
-        if (_art->group[g]->ports[x] == 0)
-          continue;
-        
-        // Delete merge buffer if it exists
-        if (_art->group[g]->ports[x]->ipBuffer != 0) {
-          #if defined(ESP32)
-          free(_art->group[g]->ports[x]->ipBuffer);
-          #elif defined(ESP8266)
-          os_free(_art->group[g]->ports[x]->ipBuffer);
-          #endif
-          _art->group[g]->ports[x]->ipBuffer = 0;
-        }
-        
-        // Update our timer variables
-        _art->group[g]->ports[x]->lastPacketTime[0] = 0;
-        _art->group[g]->ports[x]->lastPacketTime[1] = 0;
-      }
-      */
-      break;
-      
-    case ARTNET_AC_MERGE_LTP_0:
-    case ARTNET_AC_MERGE_LTP_1:
-    case ARTNET_AC_MERGE_LTP_2:
-    case ARTNET_AC_MERGE_LTP_3:
-      if (_art->group[g]->ports[p] != 0) {
-        // Delete merge buffer if it exists
-        if (_art->group[g]->ports[p]->ipBuffer != 0) {
-          #if defined(ESP32)
-          free(_art->group[g]->ports[p]->ipBuffer);
-          #elif defined(ESP8266)
-          os_free(_art->group[g]->ports[p]->ipBuffer);
-          #endif
-          _art->group[g]->ports[p]->ipBuffer = 0;
-        }
-        
-        // Update our timer variables
-        _art->group[g]->ports[p]->lastPacketTime[0] = 0;
-        _art->group[g]->ports[p]->lastPacketTime[1] = 0;
-  
-        // Set to LTP
-        _art->group[g]->ports[p]->mergeHTP = false;
-  
-        // Cancel the cancel merge
-        _art->group[g]->cancelMerge = 0;
-        _art->group[g]->cancelMergeIP = INADDR_NONE;
-      }
-      break;
-      
-    case ARTNET_AC_MERGE_HTP_0:
-    case ARTNET_AC_MERGE_HTP_1:
-    case ARTNET_AC_MERGE_HTP_2:
-    case ARTNET_AC_MERGE_HTP_3:
-      // Set to HTP
-      if (_art->group[g]->ports[p] != 0) {
-        _art->group[g]->ports[p]->mergeHTP = true;
+      cancelMergePort->merging  = false;
+      cancelMergePort->mergeHTP = false;
+      cancelMergePort->senderIP[0] = INADDR_NONE;
+      cancelMergePort->senderIP[1] = INADDR_NONE;
+      cancelMergePort->lastPacketTime[0] = 0;
+      cancelMergePort->lastPacketTime[1] = 0;
 
-        // Cancel the cancel merge
-        _art->group[g]->cancelMerge = 0;
-        _art->group[g]->cancelMergeIP = INADDR_NONE;
+      if (cancelMergePort->ipBuffer) {
+#if defined(ESP32)
+        free(cancelMergePort->ipBuffer);
+#else
+        os_free(cancelMergePort->ipBuffer);
+#endif
+        cancelMergePort->ipBuffer = nullptr;
       }
-      break;
-      
-    case ARTNET_AC_CLEAR_OP_0:
-    case ARTNET_AC_CLEAR_OP_1:
-    case ARTNET_AC_CLEAR_OP_2:
-    case ARTNET_AC_CLEAR_OP_3:
-      if (_art->group[g]->ports[p] == 0) {
-        // Delete merge buffer if it exists
-        if (_art->group[g]->ports[p]->ipBuffer != 0) {
-          #if defined(ESP32)
-          free(_art->group[g]->ports[p]->ipBuffer);
-          #elif defined(ESP8266)
-          os_free(_art->group[g]->ports[p]->ipBuffer);
-          #endif
-          _art->group[g]->ports[p]->ipBuffer = 0;
-        }
+    }
+    goto send_reply;
+  }
 
-        // Clear the DMX output buffer
-        artClearDMXBuffer(_art->group[g]->ports[p]->dmxBuffer);
+  // ---------- Per-port commands ----------
+  if (p >= 4 || !group->ports[p])
+    return;
+
+  port = group->ports[p];
+
+  switch (op) {
+    case ARTNET_AC_MERGE_LTP:
+      if (port->ipBuffer) {
+#if defined(ESP32)
+        free(port->ipBuffer);
+#elif defined(ESP8266)
+        os_free(port->ipBuffer);
+#endif
+        port->ipBuffer = nullptr;
       }
+
+      port->lastPacketTime[0] = 0;
+      port->lastPacketTime[1] = 0;
+      port->mergeHTP = false;
+      port->merging = false;
+
+      group->cancelMerge = false;
+      group->cancelMergeIP = INADDR_NONE;
       break;
 
-    case ARTNET_AC_ARTNET_SEL_0:
-    case ARTNET_AC_ARTNET_SEL_1:
-    case ARTNET_AC_ARTNET_SEL_2:
-    case ARTNET_AC_ARTNET_SEL_3:
-      for (uint8_t x = 0; x < 4; x++) {
-        if (_art->group[g]->ports[x] == 0)
-          setE131(g, x, false);
+    case ARTNET_AC_MERGE_HTP:
+      if (port->portType != DMX_IN) {
+        // OUTPUT → HTP merge
+        port->mergeHTP = true;
+        port->merging = false;
+      } else {
+        // INPUT → sACN select
+        setE131(g, p, true);
       }
+      group->cancelMerge = false;
+      group->cancelMergeIP = INADDR_NONE;
       break;
 
-    case ARTNET_AC_ACN_SEL_0:
-    case ARTNET_AC_ACN_SEL_1:
-    case ARTNET_AC_ACN_SEL_2:
-    case ARTNET_AC_ACN_SEL_3:
-      for (uint8_t x = 0; x < 4; x++) {
-        if (_art->group[g]->ports[p] == 0)
-          setE131(g, p, true);
+    case ARTNET_AC_CLEAR_OP:
+      if (port->ipBuffer) {
+#if defined(ESP32)
+        free(port->ipBuffer);
+#elif defined(ESP8266)
+        os_free(port->ipBuffer);
+#endif
+        port->ipBuffer = nullptr;
       }
+
+      artClearDMXBuffer(port->dmxBuffer);
+      port->merging = false;
+      port->mergeHTP  = true;
+      setE131(g, p, false);
       break;
 
+    case ARTNET_AC_ARTNET_SEL:
+      setE131(g, p, false);
+      break;
   }
 
   // Send reply
+send_reply:
   artPollReply();
   
   // Run callback
@@ -1010,7 +1093,7 @@ void espArtNetRDM::_artSync(unsigned char *_artBuffer) {
   _art->lastSync = millis();
   
   // Run callback
-  if (_art->syncCallBack != 0)// && _art->syncIP == eUDP.remoteIP())
+  if (_art->syncCallBack != 0 && _art->syncIP == eUDP.remoteIP())
     _art->syncCallBack();
 }
 
@@ -1074,7 +1157,14 @@ void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* 
 
   // Initialise our reply
   uint16_t len = ARTNET_TOD_DATA_SIZE + (6 * uidTotal);
-  char artTodData[len];
+#if defined(ESP32)
+  uint8_t* artTodData = (uint8_t*)malloc(len);
+#elif defined(ESP8266)
+  uint8_t* artTodData = (uint8_t*)os_malloc(len);
+#endif
+  if (!artTodData)
+    return;
+
   artTodData[0] = 'A';
   artTodData[1] = 'r';
   artTodData[2] = 't';
@@ -1137,6 +1227,8 @@ void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* 
 
     blockCount++;
   }
+
+  free(artTodData);
 }
 
 void espArtNetRDM::_artTODControl(unsigned char *_artBuffer) {
@@ -1149,7 +1241,7 @@ void espArtNetRDM::_artRDM(unsigned char *_artBuffer, uint16_t packetSize) {
 
   IPAddress remoteIp = eUDP.remoteIP();
 
-  uint8_t net = _artBuffer[21] * 0x7F;
+  uint8_t net = _artBuffer[21] & 0x7F;  // NetSwitch is 7 bits
   uint8_t sub = _artBuffer[23] >> 4;
   uint8_t uni = _artBuffer[23] & 0x0F;
 
@@ -1205,7 +1297,13 @@ void espArtNetRDM::rdmResponse(rdm_data* c, uint8_t g, uint8_t p) {
 
   uint16_t len = ARTNET_RDM_REPLY_SIZE + c->packet.Length + 1;
   // Initialise our reply
-  char rdmReply[len];
+#if defined(ESP32)
+  uint8_t* rdmReply = (uint8_t*)malloc(len);
+#elif defined(ESP8266)
+  uint8_t* rdmReply = (uint8_t*)os_malloc(len);
+#endif
+  if (!rdmReply)
+    return;
   
   rdmReply[0] = 'A';
   rdmReply[1] = 'r';
@@ -1215,7 +1313,7 @@ void espArtNetRDM::rdmResponse(rdm_data* c, uint8_t g, uint8_t p) {
   rdmReply[5] = 'e';
   rdmReply[6] = 't';
   rdmReply[7] = 0;
-  rdmReply[8] = (uint8_t)(ARTNET_RDM && 0x00FF);          // op code lo-hi
+  rdmReply[8] = (uint8_t)(ARTNET_RDM & 0x00FF); // op code lo-hi
   rdmReply[9] = (uint8_t)(ARTNET_RDM >> 8);
   rdmReply[10] = 0;
   rdmReply[11] = 14;                 // artNet version (14)
@@ -1239,6 +1337,8 @@ void espArtNetRDM::rdmResponse(rdm_data* c, uint8_t g, uint8_t p) {
       eUDP.endPacket();
     }
   }
+
+  free(rdmReply);
 }
 
 void espArtNetRDM::_artRDMSub(unsigned char *_artBuffer) {
@@ -1364,12 +1464,15 @@ void espArtNetRDM::setNodeReport(const char* c, uint16_t code) {
   if (_art == 0)
     return;
 
+  if (strncmp(_art->nodeReport, c, ARTNET_NODE_REPORT_LENGTH) != 0)
+    _art->nodeReportChanged = true;
+
   strlcpy(_art->nodeReport, c, ARTNET_NODE_REPORT_LENGTH);
   _art->nodeReportCode = code;
 }
 
 void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, IPAddress bcAddress, uint8_t* data, uint16_t length) {
-  if (_art == 0 || _art->numGroups <= g || _art->group[g]->ports[p] == 0)
+  if (_art == 0 || g >= _art->numGroups || _art->group[g]->ports[p] == 0)
     return;
 
   uint8_t net = _art->group[g]->netSwitch;
@@ -1384,7 +1487,7 @@ void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, IPAddress bcAddress, uint8_t* d
 
   _art->group[g]->ports[p]->dmxChans = length;
 
-  unsigned char _artDMX[ARTNET_BUFFER_MAX];
+  static uint8_t _artDMX[ARTNET_BUFFER_MAX];
   _artDMX[0] = 'A';
   _artDMX[1] = 'r';
   _artDMX[2] = 't';
@@ -1414,7 +1517,7 @@ void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, IPAddress bcAddress, uint8_t* d
 }
 
 void espArtNetRDM::setE131(uint8_t g, uint8_t p, bool a) {
-  if (_art == 0 || _art->numGroups <= g || _art->group[g]->ports[p] == 0)
+  if (_art == 0 || g >= _art->numGroups || _art->group[g]->ports[p] == 0)
     return;
 
   // Increment or decrement our e131Count variable
@@ -1424,7 +1527,7 @@ void espArtNetRDM::setE131(uint8_t g, uint8_t p, bool a) {
     // Clear the DMX output buffer
     artClearDMXBuffer(_art->group[g]->ports[p]->dmxBuffer);
 
-  } else if (_art->group[g]->ports[p]->e131 && !a) {
+  } else if (_art->group[g]->ports[p]->e131 && !a && e131Count > 0) {
     e131Count -= 1;
 
     // Clear the DMX output buffer
@@ -1435,14 +1538,14 @@ void espArtNetRDM::setE131(uint8_t g, uint8_t p, bool a) {
 }
 
 bool espArtNetRDM::getE131(uint8_t g, uint8_t p) {
-  if (_art == 0 || _art->numGroups <= g || _art->group[g]->ports[p] == 0 || _art->group[g]->ports[p]->e131 == false)
+  if (_art == 0 || g >= _art->numGroups || _art->group[g]->ports[p] == 0 || _art->group[g]->ports[p]->e131 == false)
     return false;
 
   return true;
 }
 
 void espArtNetRDM::setE131Uni(uint8_t g, uint8_t p, uint16_t u) {
-  if (_art == 0 || _art->numGroups <= g || _art->group[g]->ports[p] == 0)
+  if (_art == 0 || g >= _art->numGroups || _art->group[g]->ports[p] == 0)
     return;
 
   _art->group[g]->ports[p]->e131Uni = u;
