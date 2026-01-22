@@ -2056,11 +2056,12 @@ void loop(void){
 #endif //ifdef DEBUG
 
   // Process mDNS for captive portal (only relevant for access point)
-  if (accessPointStarted == true)
+  if (accessPointStarted == true) {
     dnsServer.processNextRequest();
 #if defined(ESP8266)
-  yield();  // Prevent watchdog resets
+    yield();  // Prevent watchdog resets
 #endif //defined(ESP8266)
+  }
   
   // Get the node details and handle Artnet
   doNodeReport();
