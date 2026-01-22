@@ -249,7 +249,7 @@ class espArtNetRDM {
     void sendDMX(uint8_t, uint8_t, IPAddress, uint8_t*, uint16_t);
 
   private:
-    artnet_device* _art = 0;
+    artnet_device* _art = nullptr;
     
     int _artOpCode(unsigned char*);
     void _artIPProgReply();
