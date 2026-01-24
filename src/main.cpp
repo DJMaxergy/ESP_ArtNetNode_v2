@@ -41,8 +41,8 @@
 #define DNS_PORT                    53          // Port used by DNS server
 
 #ifdef OLED
-  #define DISP_LOGO_WIDTH    128
-  #define DISP_LOGO_HEIGHT   32
+  #define DISP_LOGO_WIDTH     128
+  #define DISP_LOGO_HEIGHT    32
   const unsigned char dispLogo [] PROGMEM = {
     // 'Art-Net-DJ-logo-scaled, 128x32px
     0x03, 0x01, 0xfc, 0x1f, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x01, 0x04, 0x80, 0x00, 0x00, 0x00, 0x00, 
@@ -80,33 +80,10 @@
   };
 #endif //ifdef OLED
 
-/* ---------------- Pin config ---------------- */
-#if defined(ESP32)
-  #define PIN_DMX_DIR_A               23  // equals D1mini D7
-  #define PIN_DMX_DIR_B               26  // equals D1mini D0
-  // #define PIN_PORT_A_TX               17  // equals D1mini D3, use for production
-  #define PIN_PORT_A_TX               1  // equals D1mini TX
-  #define PIN_PORT_B_TX               16  // equals D1mini D4
-  // #define PIN_PORT_A_RX               22  // equals D1mini D1, use for production
-  #define PIN_PORT_A_RX               3  // equals D1mini RX
-  #define PIN_STATUS_LED              19  // equals D1mini D6
-  #define PIN_RESET_CONFIG            18  // equals D1mini D5
-#elif defined(ESP8266)
-  #define PIN_DMX_DIR_A               13  // D1 Mini: D7
-  #define PIN_DMX_DIR_B               16  // D1 Mini: D0
-  #define PIN_PORT_A_TX               1   // D1 Mini: TX
-  #define PIN_PORT_B_TX               2   // D1 Mini: D4
-  #define PIN_PORT_A_RX               3   // D1 Mini: RX
-  #define PIN_STATUS_LED              12  // D1 Mini: D6
-  #define PIN_RESET_CONFIG            14  // D1 Mini: D5
-#endif //defined(ESP8266)
-#define PIN_PORT_B_RX                 -1  // just a dummy
-
 // Physical wiring order for status LEDs:
 #define ADDR_STATUS_LED_S           0
 #define ADDR_STATUS_LED_A           1
 #define ADDR_STATUS_LED_B           2
-/* -------------- Pin config end -------------- */
 
 Config config, configActive;
 espArtNetRDM artRDM;
@@ -114,7 +91,11 @@ DNSServer dnsServer;
 
 // DMX ports
 #if defined(ESP32)
-  dmx_port_t dmxPortA = DMX_NUM_0; //use DMX_NUM_1 for production
+#if defined(CONFIG_IDF_TARGET_ESP32) && PIN_PORT_A_TX == 1
+  dmx_port_t dmxPortA = DMX_NUM_0;
+#else
+  dmx_port_t dmxPortA = DMX_NUM_1; //use DMX_NUM_1 for production
+#endif
 #ifndef SOLE_OUTPUT
   dmx_port_t dmxPortB = DMX_NUM_2;
 #endif //ifndef SOLE_OUTPUT
@@ -179,7 +160,7 @@ RgbColor black(0);
 RgbColor pink(STATUS_LED_COLOR_SAT, STATUS_LED_COLOR_SAT/11, STATUS_LED_COLOR_SAT/3);
 
 #ifdef OLED
-  Adafruit_SSD1306 display(128, 32, &Wire, -1);
+  Adafruit_SSD1306 display(DISP_LOGO_WIDTH, DISP_LOGO_HEIGHT, &Wire, -1);
 #endif //ifdef OLED
 
 uint16_t numWdtCounter;
@@ -1749,12 +1730,16 @@ void initPorts() {
 
 #ifdef OLED
 void initDisplay() {
-  display.begin(SSD1306_SWITCHCAPVCC, 0);
+#if defined(ESP32)
+  Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
+#elif defined(ESP8266)
+  Wire.begin();
+#endif //defined(ESP8266)
+  display.begin(SSD1306_SWITCHCAPVCC, 0x00);
+  display.clearDisplay(); // Clear display to prevent that Adafruit logo gets shown
   display.setTextWrap(false);
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  // Clear display to prevent that Adafruit logo gets shown:
-  display.clearDisplay();
 
   // Show boot logo on OLED display:
   display.drawBitmap(0, 0, dispLogo, DISP_LOGO_WIDTH, DISP_LOGO_HEIGHT, 1);
