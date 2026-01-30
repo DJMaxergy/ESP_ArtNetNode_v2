@@ -91,7 +91,7 @@ DNSServer dnsServer;
 
 // DMX ports
 #if defined(ESP32)
-#if defined(CONFIG_IDF_TARGET_ESP32) && PIN_PORT_A_TX == 1
+#if (defined(CONFIG_IDF_TARGET_ESP32) && PIN_PORT_A_TX == 1) || (defined(CONFIG_IDF_TARGET_ESP32S3) && PIN_PORT_A_TX == 43)
   dmx_port_t dmxPortA = DMX_NUM_0;
 #else
   dmx_port_t dmxPortA = DMX_NUM_1; //use DMX_NUM_1 for production
